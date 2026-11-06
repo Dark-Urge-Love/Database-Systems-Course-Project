@@ -1,0 +1,258 @@
+{% extends "base.html" %}
+{% block title %}医生接诊开方 · {{ APP_TITLE }}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>医生接诊开方 <span class="tag">事务 T2</span></h1>
+  <p>接诊会把「已预约」变成「已就诊」并生成 1-1 的就诊记录（表上 <span class="mono">UNIQUE(appt_id)</span> 保证唯一）；
+     开处方要在一个事务里同时写入处方、处方明细、扣减药品库存、生成药费流水 —— 任意一步失败全部回滚。</p>
+</div>
+
+<div class="grid grid-sidebar">
+  <!-- ================= 左侧：待接诊列表 ================= -->
+  <div>
+    <div class="card">
+      <h2>待接诊预约 <span class="tag">{{ pending|length }} 条</span></h2>
+      <label class="field"><span>主诉</span><input type="text" id="chief" placeholder="发热咳嗽 3 天"></label>
+      <label class="field"><span>诊断</span><input type="text" id="diag" placeholder="上呼吸道感染"></label>
+      <label class="field"><span>医嘱</span><input type="text" id="advice" placeholder="多饮水，注意休息"></label>
+      <p class="hint" style="margin-top:0">留空将使用占位默认值。点击右侧列表中的「接诊」按钮执行事务。</p>
+    </div>
+
+    <div class="card">
+      <div class="table-wrap" style="max-height:420px">
+        <table>
+          <thead><tr><th>预约ID</th><th>患者</th><th>医生/科室</th><th>排班</th><th></th></tr></thead>
+          <tbody>
+          {% for a in pending %}
+            <tr>
+              <td class="num">{{ a.appt_id }}</td>
+              <td>{{ a.patient_name }}</td>
+              <td>{{ a.doctor_name }}<br><span class="hint">{{ a.dept_name }}</span></td>
+              <td>{{ a.work_date }}<br><span class="hint">{{ a.period }}</span></td>
+              <td><button class="small teal" onclick="doVisit({{ a.appt_id }})">接诊</button></td>
+            </tr>
+          {% else %}
+            <tr><td colspan="5"><div class="center-empty">没有待接诊的预约</div></td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="msg" id="visitMsg"></div>
+    </div>
+  </div>
+
+  <!-- ================= 右侧：开方 ================= -->
+  <div>
+  {% if visit %}
+    <div class="card">
+      <h2>本次就诊 <span class="tag green">就诊ID {{ visit.visit_id }}</span></h2>
+      <dl class="kv" style="grid-template-columns:auto 1fr auto 1fr">
+        <dt>患者</dt><dd>{{ visit.patient_name }}</dd>
+        <dt>性别</dt><dd>{{ visit.gender or '—' }}</dd>
+        <dt>医生</dt><dd>{{ visit.doctor_name }}</dd>
+        <dt>科室</dt><dd>{{ visit.dept_name }}</dd>
+        <dt>就诊时间</dt><dd>{{ visit.visit_time }}</dd>
+        <dt>主诉</dt><dd>{{ visit.chief_complaint or '—' }}</dd>
+        <dt>诊断</dt><dd>{{ visit.diagnosis or '—' }}</dd>
+        <dt>医嘱</dt><dd>{{ visit.advice or '—' }}</dd>
+      </dl>
+    </div>
+
+    <div class="grid grid-2" style="margin-top:16px">
+      <div class="card">
+        <h2>选择药品</h2>
+        <label class="field"><span>搜索药品名</span>
+          <input type="text" id="dq" placeholder="例如：阿莫西林 / 布洛芬">
+        </label>
+        <button class="ghost small" onclick="loadDrugs()">搜索</button>
+        <div class="spacer"></div>
+        <div class="drug-list" id="drugList"></div>
+      </div>
+
+      <div class="card">
+        <h2>处方清单</h2>
+        <div id="picked" class="picked-list"><div class="center-empty">从左侧点击「加入」添加药品</div></div>
+        <div class="spacer"></div>
+        <div class="grid grid-2">
+          <label class="field"><span>处方类型</span>
+            <select id="ptype"><option>西药</option><option>中药</option></select></label>
+          <label class="field"><span>支付方式</span>
+            <select id="pmethod"><option>微信</option><option>支付宝</option><option>医保</option><option>现金</option></select></label>
+        </div>
+        <div class="btn-row">
+          <button onclick="doPrescribe()" id="btnPresc">提交处方（执行事务 T2）</button>
+          <button class="ghost" onclick="loadDrugs()">刷新药品</button>
+        </div>
+        <div class="msg" id="prescMsg"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>已开处方明细</h2>
+      {% if items %}
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>明细ID</th><th>药品</th><th>规格</th><th class="num">数量</th><th class="num">单价</th><th class="num">小计</th><th>用法</th></tr></thead>
+          <tbody>
+          {% for i in items %}
+            <tr>
+              <td class="num">{{ i.item_id }}</td><td>{{ i.drug_name }}</td><td>{{ i.spec }}</td>
+              <td class="num">{{ i.quantity }}</td>
+              <td class="num">¥{{ '%.2f'|format(i.unit_price) }}</td>
+              <td class="num">¥{{ '%.2f'|format(i.subtotal) }}</td>
+              <td>{{ i.usage_note }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="spacer"></div>
+      <h2 style="font-size:13px">缴费流水</h2>
+      <div class="table-wrap" style="max-height:220px">
+        <table>
+          <thead><tr><th>缴费ID</th><th>费用类型</th><th class="num">金额</th><th>方式</th><th>时间</th><th>状态</th></tr></thead>
+          <tbody>
+          {% for p in pays %}
+            <tr><td class="num">{{ p.pay_id }}</td><td>{{ p.fee_type }}</td>
+                <td class="num">¥{{ '%.2f'|format(p.amount) }}</td><td>{{ p.pay_method }}</td>
+                <td>{{ p.pay_time }}</td><td><span class="tag green">{{ p.status }}</span></td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="center-empty">本次就诊还没有开处方</div>
+      {% endif %}
+    </div>
+
+  {% else %}
+    <div class="card">
+      <div class="center-empty">
+        还没有选中就诊记录。<br>
+        请在左侧「待接诊预约」里点击某一条的 <b>接诊</b> 按钮 —— 
+        系统会执行 <span class="mono">INSERT INTO visit</span> +
+        <span class="mono">UPDATE appointment SET status='已就诊'</span> 并生成挂号费流水。
+      </div>
+    </div>
+  {% endif %}
+
+    <div id="prescResult"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const $ = id => document.getElementById(id);
+
+/* ---------- 接诊 ---------- */
+async function doVisit(apptId) {
+  showMsg($('visitMsg'), '正在执行接诊事务…', 'info');
+  const r = await postJSON('/api/visit', {
+    appt_id: apptId,
+    chief_complaint: $('chief').value.trim(),
+    diagnosis: $('diag').value.trim(),
+    advice: $('advice').value.trim()
+  });
+  if (!r.ok) { showMsg($('visitMsg'), '接诊失败：' + r.error, 'bad'); return; }
+  showMsg($('visitMsg'), `接诊成功，生成就诊记录 visit_id=${r.data.visit_id}，挂号费 ¥${r.data.reg_fee}，耗时 ${r.data.elapsed_ms} ms，正在跳转…`, 'ok');
+  setTimeout(() => { location.href = '/clinic?visit_id=' + r.data.visit_id; }, 800);
+}
+
+/* ---------- 药品 ---------- */
+let picked = {};        // drug_id -> {name, spec, price, qty}
+let drugIndex = {};     // drug_id -> 药品信息（避免把字符串拼进 onclick）
+
+async function loadDrugs() {
+  const q = ($('dq') ? $('dq').value.trim() : '');
+  const r = await api('/api/drugs?q=' + encodeURIComponent(q));
+  if (!$('drugList')) return;
+  if (!r.data || !r.data.length) { $('drugList').innerHTML = '<div class="center-empty">没有匹配的药品</div>'; return; }
+  drugIndex = {};
+  let h = '';
+  r.data.forEach(d => {
+    drugIndex[d.drug_id] = {name: d.drug_name, spec: d.spec || '', price: Number(d.price)};
+    h += `<div class="drug-item">
+      <span class="n">${esc(d.drug_name)} <span class="hint">${esc(d.spec || '')}</span>
+        <br><span class="hint">库存 ${d.stock} · ${d.is_rx ? '处方药' : '非处方药'}</span></span>
+      <span class="p">¥${Number(d.price).toFixed(2)}</span>
+      <button class="small" onclick="addDrug(${d.drug_id})">加入</button>
+    </div>`;
+  });
+  $('drugList').innerHTML = h;
+}
+
+function addDrug(id) {
+  const info = drugIndex[id];
+  if (!info) return;
+  if (picked[id]) { picked[id].qty += 1; } else { picked[id] = Object.assign({qty: 1}, info); }
+  renderPicked();
+}
+function removeDrug(id) { delete picked[id]; renderPicked(); }
+function setQty(id, q) { if (picked[id]) { picked[id].qty = Math.max(1, +q || 1); renderPicked(); } }
+
+function renderPicked() {
+  const el = $('picked');
+  if (!el) return;
+  const ids = Object.keys(picked);
+  if (!ids.length) { el.innerHTML = '<div class="center-empty">从左侧点击「加入」添加药品</div>'; return; }
+  let h = '', total = 0;
+  ids.forEach(id => {
+    const p = picked[id];
+    const sub = p.price * p.qty; total += sub;
+    h += `<div class="picked-row">
+      <span class="n">${esc(p.name)} <span class="hint">${esc(p.spec || '')}</span></span>
+      <input type="number" min="1" value="${p.qty}" onchange="setQty(${id}, this.value)">
+      <span class="hint" style="width:88px;text-align:right">¥${sub.toFixed(2)}</span>
+      <button class="small ghost" onclick="removeDrug(${id})">移除</button>
+    </div>`;
+  });
+  h += `<div class="picked-row" style="border:none"><span class="n" style="text-align:right">合计</span>
+        <b style="width:150px;text-align:right;color:var(--teal)">¥${total.toFixed(2)}</b></div>`;
+  el.innerHTML = h;
+}
+
+/* ---------- 提交处方 ---------- */
+async function doPrescribe() {
+  const ids = Object.keys(picked);
+  if (!ids.length) { showMsg($('prescMsg'), '请先添加至少一种药品', 'bad'); return; }
+  const items = ids.map(id => ({drug_id: +id, quantity: picked[id].qty}));
+  $('btnPresc').disabled = true;
+  showMsg($('prescMsg'), '正在执行开方事务…', 'info');
+  const r = await postJSON('/api/prescribe', {
+    visit_id: {{ visit.visit_id if visit else 0 }},
+    items: items,
+    presc_type: $('ptype').value,
+    pay_method: $('pmethod').value
+  });
+  $('btnPresc').disabled = false;
+  if (!r.ok) {
+    showMsg($('prescMsg'), '开方失败（事务已回滚）：' + r.error, 'bad');
+    $('prescResult').innerHTML = highlightSQL(r.error);
+    return;
+  }
+  const d = r.data;
+  showMsg($('prescMsg'), `开方成功：处方号 ${d.presc_id}，合计 ¥${d.total}，耗时 ${d.elapsed_ms} ms`, 'ok');
+  let rows = '';
+  d.items.forEach(i => {
+    rows += `<tr><td>${esc(i.drug_name)}</td><td>${esc(i.spec)}</td><td class="num">${i.quantity}</td>
+             <td class="num">¥${i.unit_price.toFixed(2)}</td><td class="num">¥${i.subtotal.toFixed(2)}</td></tr>`;
+  });
+  $('prescResult').innerHTML = `
+    <div class="card">
+      <h2>处方结果 <span class="tag green">处方号 ${d.presc_id}</span></h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>药品</th><th>规格</th><th class="num">数量</th><th class="num">单价</th><th class="num">小计</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>
+      <div class="spacer"></div>
+      <dl class="kv"><dt>药品总金额</dt><dd><b>¥${d.total.toFixed(2)}</b></dd>
+        <dt>支付方式</dt><dd>${esc(d.pay_method)}</dd></dl>
+      ${highlightSQL(d.sql)}
+      <div class="spacer"></div>
+      <button class="ghost" onclick="location.reload()">刷新本页查看最新明细</button>
+    </div>`;
+}
+{% if visit %}loadDrugs();{% endif %}
+</script>
+{% endblock %}

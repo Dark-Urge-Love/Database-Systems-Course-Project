@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}连接失败 · {{ APP_TITLE }}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>暂时连不上数据库服务器</h1>
+  <p>页面本身没问题，是 Windows 客户端没能连上 Ubuntu 服务器上的 MySQL。</p>
+</div>
+
+<div class="card">
+  <h2>错误信息</h2>
+  <pre class="sql">{{ message }}</pre>
+</div>
+
+<div class="card">
+  <h2>按顺序检查这三步</h2>
+  <ol style="line-height:2;padding-left:22px;margin:0">
+    <li>
+      <b>Ubuntu 是否在运行？</b><br>
+      <span class="hint">打开开始菜单里的 <b>Ubuntu</b> 图标，能看到终端提示符就说明起来了。
+      本机 WSL 虚拟机在没人用时会自动关闭，这是正常的。</span>
+    </li>
+    <li>
+      <b>MySQL 是否在运行？</b><br>
+      <span class="hint">在 Ubuntu 终端里执行 <span class="mono">dbstatus</span>；
+      如果显示未运行，执行 <span class="mono">dbup</span>（或 <span class="mono">sudo service mysql start</span>）。</span>
+    </li>
+    <li>
+      <b>服务器地址对不对？</b><br>
+      <span class="hint">在 Ubuntu 里执行 <span class="mono">hostname -I</span> 看当前 IP。
+      本程序会自动扫描并更新地址，稍等几秒刷新本页通常就能自动恢复。</span>
+    </li>
+  </ol>
+  <div class="spacer"></div>
+  <div class="btn-row">
+    <button onclick="location.reload()">刷新重试</button>
+    <a class="tag" style="padding:9px 16px" href="{{ url_for('main.dashboard') }}">回到总览</a>
+  </div>
+</div>
+
+<div class="card">
+  <h2>当前配置</h2>
+  <dl class="kv">
+    <dt>目标服务器</dt><dd class="mono">{{ conn.host }}:{{ conn.port }}</dd>
+    <dt>登录账号</dt><dd class="mono">{{ conn.user }}</dd>
+    <dt>目标数据库</dt><dd class="mono">{{ conn.db }}</dd>
+  </dl>
+  <p class="hint" style="margin-top:8px">
+    如需手动指定服务器地址，可在 Windows 命令行里这样启动客户端：<br>
+    <span class="mono">set DB_HOST=192.168.x.x &amp;&amp; python run.py</span>
+  </p>
+</div>
+{% endblock %}

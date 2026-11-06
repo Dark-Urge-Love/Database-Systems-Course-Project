@@ -1,0 +1,41 @@
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# ---------- 虚拟环境 ----------
+.venv/
+venv/
+env/
+ENV/
+
+# ---------- 运行时产物 ----------
+*.log
+db_deploy.log
+.db_host_cache
+wsl_ip.txt
+.last_run_results.json
+*.csv.tmp
+
+# ---------- 数据库导出/备份 ----------
+*.sql.gz
+*.dump
+*.bak
+
+# ---------- 编辑器 / 系统 ----------
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------- 本工具的工作目录（会话记录，非项目内容）----------
+.workbuddy/

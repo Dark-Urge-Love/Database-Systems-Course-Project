@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}基本操作台 · {{ APP_TITLE }}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>基本操作台 <span class="tag">建表 / 插入 / 修改 / 删除 / 删表 / join</span></h1>
+  <p>按顺序点击即可完整演示课程要求的六项基本数据库操作。每一步都会显示<b>实际执行的 SQL</b>和<b>执行结果</b>，
+     答辩时可以直接照着讲。</p>
+</div>
+
+<div class="card">
+  <h2>操作按钮（建议按 ① → ⑦ 顺序执行）</h2>
+  <div class="btn-row">
+    {% for key, op in ops.items() %}
+      <button class="{{ 'ghost' if not loop.first }}" onclick="runOp('{{ key }}')">{{ op.title }}</button>
+    {% endfor %}
+    <button class="warn" onclick="$('log').innerHTML=''; hideMsg()">清空输出</button>
+  </div>
+  <div class="msg" id="opMsg"></div>
+</div>
+
+<div class="grid grid-2" style="margin-top:16px">
+  <div class="card">
+    <h2>执行详情</h2>
+    <div id="detail"><div class="center-empty">点击上方按钮开始演示</div></div>
+  </div>
+  <div class="card">
+    <h2>操作日志</h2>
+    <div id="log"><div class="center-empty">这里会累积显示每一步的执行记录</div></div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px">
+  <h2>操作说明</h2>
+  <div class="table-wrap" style="max-height:none">
+    <table>
+      <thead><tr><th style="width:210px">操作</th><th>说明</th></tr></thead>
+      <tbody>
+      {% for key, op in ops.items() %}
+        <tr><td>{{ op.title }}</td><td>{{ op.desc }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="hint" style="margin-top:10px">
+    为了不污染主数据，①~⑤ 的增删改都作用在一张临时表 <span class="mono">drug_archive</span> 上，
+    做完 ⑤ 删表后数据库回到原样；⑥⑦ 是只读的复杂连接查询，作用在真实业务表上。
+  </p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const $ = id => document.getElementById(id);
+let step = 0;
+
+function hideMsg() { $('opMsg').className = 'msg'; }
+
+async function runOp(key) {
+  step += 1;
+  showMsg($('opMsg'), '正在执行…', 'info');
+  const r = await postJSON('/api/ops', {op: key, patient_id: 1});
+  if (!r.ok) {
+    showMsg($('opMsg'), '执行失败：' + r.error, 'bad');
+    $('detail').innerHTML = (r.steps || []).map(s => highlightSQL(s.sql)).join('') +
+      `<div class="msg bad show">${esc(r.error)}</div>`;
+    addLog(key, false, r.error);
+    return;
+  }
+  const d = r.data;
+  showMsg($('opMsg'), `第 ${step} 步「${key}」执行成功，耗时 ${d.elapsed_ms} ms`, 'ok');
+
+  let html = '';
+  (d.steps || []).forEach(s => {
+    html += `<div class="hint">受影响 ${s.rowcount} 行，耗时 ${s.elapsed_ms} ms</div>`;
+    html += highlightSQL(s.sql);
+  });
+  if (d.rows && d.rows.length) {
+    html += '<div class="spacer"></div>';
+    html += renderTable(d.columns, d.rows, 50);
+  } else if (d.columns && d.columns.length) {
+    html += '<div class="spacer"></div><div class="center-empty">结果集为空</div>';
+  }
+  $('detail').innerHTML = html;
+  addLog(key, true, `耗时 ${d.elapsed_ms} ms，返回 ${d.rows ? d.rows.length : 0} 行`);
+}
+
+function addLog(key, ok, info) {
+  const el = $('log');
+  if (el.querySelector('.center-empty')) el.innerHTML = '';
+  const row = document.createElement('div');
+  row.style.cssText = 'padding:7px 0;border-bottom:1px dashed var(--line);font-size:13px';
+  row.innerHTML = `<span class="tag ${ok ? 'green' : 'red'}">${ok ? '成功' : '失败'}</span>
+                   <b style="margin:0 6px">${esc(key)}</b><span class="hint">${esc(info)}</span>`;
+  el.appendChild(row);
+}
+</script>
+{% endblock %}

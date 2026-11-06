@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}{{ APP_TITLE }}{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="brand"><span class="logo">＋</span>{{ APP_TITLE }}</div>
+    <nav class="topnav">
+      <a href="{{ url_for('main.dashboard') }}"  class="{{ 'active' if request.endpoint=='main.dashboard' }}">数据总览</a>
+      <a href="{{ url_for('main.register_page') }}" class="{{ 'active' if request.endpoint=='main.register_page' }}">患者挂号</a>
+      <a href="{{ url_for('main.clinic_page') }}"  class="{{ 'active' if request.endpoint=='main.clinic_page' }}">医生接诊开方</a>
+      <a href="{{ url_for('main.ops_page') }}"     class="{{ 'active' if request.endpoint=='main.ops_page' }}">基本操作台</a>
+      <a href="{{ url_for('main.perf_page') }}"    class="{{ 'active' if request.endpoint=='main.perf_page' }}">索引性能对比</a>
+    </nav>
+    <div class="conn-chip" title="浏览器→Flask(本机)→MySQL(Linux服务器)，数据实际存放在下面这台服务器上">
+      <span class="dot {{ '' if conn.ok else 'bad' }}"></span>
+      {% if conn.ok %}
+        数据库服务器 <b>{{ conn.host }}:{{ conn.port }}</b> · {{ conn.hostname }} · MySQL {{ conn.version.split('-')[0] }}
+      {% else %}
+        数据库未连接 <b>{{ conn.host }}:{{ conn.port }}</b>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="wrap">
+  {% block content %}{% endblock %}
+</div>
+
+<script>
+/* ---------- 通用请求封装 ---------- */
+async function api(url, options) {
+  const opt = Object.assign({headers: {'Content-Type': 'application/json'}}, options || {});
+  const resp = await fetch(url, opt);
+  return await resp.json();
+}
+function postJSON(url, data) {
+  return api(url, {method: 'POST', body: JSON.stringify(data || {})});
+}
+function showMsg(el, text, kind) {
+  el.className = 'msg ' + (kind || 'info') + ' show';
+  el.textContent = text;
+}
+function esc(s) {
+  return String(s === null || s === undefined ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+/* ---------- 渲染通用结果表格 ---------- */
+function renderTable(columns, rows, maxRows) {
+  if (!rows || !rows.length) return '<div class="center-empty">没有查询到数据</div>';
+  const cols = columns && columns.length ? columns : Object.keys(rows[0]);
+  let html = '<div class="table-wrap"><table><thead><tr>';
+  cols.forEach(c => { html += '<th>' + esc(c) + '</th>'; });
+  html += '</tr></thead><tbody>';
+  const limit = Math.min(rows.length, maxRows || 200);
+  for (let i = 0; i < limit; i++) {
+    html += '<tr>';
+    cols.forEach(c => {
+      const v = rows[i][c];
+      const isNum = typeof v === 'number';
+      html += '<td class="' + (isNum ? 'num' : '') + '">' + esc(v) + '</td>';
+    });
+    html += '</tr>';
+  }
+  html += '</tbody></table></div>';
+  if (rows.length > limit) html += '<div class="hint" style="margin-top:8px">共 ' + rows.length + ' 行，仅显示前 ' + limit + ' 行</div>';
+  else html += '<div class="hint" style="margin-top:8px">共 ' + rows.length + ' 行</div>';
+  return html;
+}
+/* ---------- SQL 高亮 ---------- */
+function highlightSQL(sql) {
+  const kws = ['SELECT','FROM','WHERE','INSERT INTO','INSERT','VALUES','UPDATE','SET','DELETE',
+               'CREATE TABLE','CREATE INDEX','DROP TABLE','DROP INDEX','DROP DATABASE','CREATE DATABASE',
+               'ALTER TABLE','START TRANSACTION','COMMIT','ROLLBACK','JOIN','LEFT JOIN','INNER JOIN',
+               'GROUP BY','ORDER BY','LIMIT','FOR UPDATE','AND','OR','NOT NULL','PRIMARY KEY','AUTO_INCREMENT',
+               'ENGINE','DEFAULT','CHARSET','IF NOT EXISTS','IF EXISTS','AS','ON','COUNT','SUM','AVG','ROUND',
+               'IGNORE INDEX','USE INDEX','SHOW','EXPLAIN','USE','DESC'];
+  let out = esc(sql);
+  kws.sort((a, b) => b.length - a.length).forEach(k => {
+    out = out.replace(new RegExp('\\b' + k.replace(/ /g, '\\s+') + '\\b', 'gi'),
+                      m => '<span class="kw">' + m.toUpperCase() + '</span>');
+  });
+  return '<pre class="sql">' + out + '</pre>';
+}
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+{% block title %}患者挂号 · {{ APP_TITLE }}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>患者挂号 <span class="tag">事务 T1</span></h1>
+  <p>一次挂号 = 扣减号源 + 生成预约。两步必须在同一个事务里完成，否则会出现「号源扣了但没挂上号」。
+     右侧可以多线程并发抢同一个号源，验证不会超卖。</p>
+</div>
+
+<div class="grid grid-sidebar">
+  <!-- ================= 左侧：挂号表单 ================= -->
+  <div>
+    <div class="card">
+      <h2>① 选择科室 / 医生 / 排班</h2>
+      <label class="field"><span>科室</span>
+        <select id="dept">
+          <option value="">请选择科室</option>
+          {% for d in departments %}
+          <option value="{{ d.dept_id }}">{{ d.dept_name }}（{{ d.dept_type }}）</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field"><span>医生</span>
+        <select id="doctor"><option value="">请先选择科室</option></select>
+      </label>
+      <label class="field">
+        <span>排班（显示 日期 / 时段 / 剩余号源 / 挂号费）</span>
+        <select id="schedule"><option value="">请先选择医生</option></select>
+      </label>
+      <label class="checkline" style="margin-bottom:12px">
+        <input type="checkbox" id="showAll"> 显示已挂满的排班
+      </label>
+    </div>
+
+    <div class="card">
+      <h2>② 选择患者</h2>
+      <label class="field"><span>按姓名 / 手机号搜索（留空显示前 30 位）</span>
+        <input type="text" id="pq" placeholder="例如：张  或  138">
+      </label>
+      <div class="btn-row" style="margin-bottom:10px">
+        <button class="ghost small" onclick="loadPatients()">搜索患者</button>
+      </div>
+      <label class="field"><span>患者</span>
+        <select id="patient"><option value="">请选择患者</option></select>
+      </label>
+      <button style="width:100%" onclick="doRegister()" id="btnReg">提交挂号（执行事务 T1）</button>
+      <div class="msg" id="regMsg"></div>
+    </div>
+  </div>
+
+  <!-- ================= 右侧：结果与并发演示 ================= -->
+  <div>
+    <div class="card">
+      <h2>挂号结果</h2>
+      <div id="regResult"><div class="center-empty">左侧提交挂号后，这里显示事务执行结果与实际执行的 SQL</div></div>
+    </div>
+
+    <div class="card">
+      <h2>并发抢号演示 <span class="tag amber">证明不会超卖</span></h2>
+      <p class="hint" style="margin-top:0">
+        用 N 个线程在"同一瞬间"抢同一个排班的号源（用 Barrier 对齐起跑线）。
+        每个线程都会 <span class="mono">SELECT ... FOR UPDATE</span> 锁住排班行，
+        因此成功数量必然等于实际扣掉的号源数，剩余号源永远不会变成负数。
+      </p>
+      <div class="btn-row">
+        <label class="field" style="margin:0;width:120px"><span>并发线程数</span>
+          <input type="number" id="threads" value="10" min="2" max="30">
+        </label>
+        <button class="teal" onclick="runConcurrency()" id="btnCc" style="align-self:flex-end">开始并发抢号</button>
+      </div>
+      <div class="msg" id="ccMsg"></div>
+      <div id="ccResult"></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const $ = id => document.getElementById(id);
+
+/* ---------- 级联加载：科室 → 医生 → 排班 ---------- */
+$('dept').addEventListener('change', async () => {
+  const deptId = $('dept').value;
+  $('doctor').innerHTML = '<option value="">加载中…</option>';
+  $('schedule').innerHTML = '<option value="">请先选择医生</option>';
+  if (!deptId) { $('doctor').innerHTML = '<option value="">请先选择科室</option>'; return; }
+  const r = await api('/api/doctors?dept_id=' + deptId);
+  let h = '<option value="">请选择医生</option>';
+  (r.data || []).forEach(d => { h += `<option value="${d.doctor_id}">${esc(d.doctor_name)} · ${esc(d.title)}</option>`; });
+  $('doctor').innerHTML = h;
+});
+
+$('doctor').addEventListener('change', loadSchedules);
+$('showAll').addEventListener('change', loadSchedules);
+
+async function loadSchedules() {
+  const doctorId = $('doctor').value;
+  $('schedule').innerHTML = '<option value="">加载中…</option>';
+  if (!doctorId) { $('schedule').innerHTML = '<option value="">请先选择医生</option>'; return; }
+  const all = $('showAll').checked ? '&all=1' : '';
+  const r = await api('/api/schedules?doctor_id=' + doctorId + all);
+  let h = '<option value="">请选择排班</option>';
+  (r.data || []).forEach(s => {
+    const label = `${s.work_date} ${s.period} · 剩余 ${s.remain_slots}/${s.total_slots} · ¥${s.reg_fee}${s.room ? ' · ' + s.room : ''}`;
+    h += `<option value="${s.schedule_id}">${esc(label)}</option>`;
+  });
+  $('schedule').innerHTML = h;
+}
+
+/* ---------- 患者搜索 ---------- */
+async function loadPatients() {
+  const q = $('pq').value.trim();
+  const r = await api('/api/patients?q=' + encodeURIComponent(q));
+  let h = '<option value="">请选择患者</option>';
+  (r.data || []).forEach(p => {
+    h += `<option value="${p.patient_id}">${p.patient_id} · ${esc(p.patient_name)} · ${esc(p.gender)} · ${esc(p.phone)}</option>`;
+  });
+  $('patient').innerHTML = h;
+}
+loadPatients();
+
+/* ---------- 提交挂号 ---------- */
+async function doRegister() {
+  const scheduleId = $('schedule').value;
+  const patientId = $('patient').value;
+  if (!scheduleId) { showMsg($('regMsg'), '请先选择排班', 'bad'); return; }
+  if (!patientId) { showMsg($('regMsg'), '请先选择患者', 'bad'); return; }
+  $('btnReg').disabled = true;
+  showMsg($('regMsg'), '正在执行事务…', 'info');
+  const r = await postJSON('/api/register', {schedule_id: +scheduleId, patient_id: +patientId});
+  $('btnReg').disabled = false;
+  if (!r.ok) { showMsg($('regMsg'), '挂号失败：' + r.error, 'bad'); return; }
+  const d = r.data;
+  showMsg($('regMsg'), `挂号成功：预约号 ${d.appt_id}，就诊顺序号 ${d.queue_no}，耗时 ${d.elapsed_ms} ms`, 'ok');
+  $('regResult').innerHTML = `
+    <dl class="kv">
+      <dt>预约 ID</dt><dd>${d.appt_id}</dd>
+      <dt>就诊顺序号</dt><dd>${d.queue_no}</dd>
+      <dt>号源变化</dt><dd><b>${d.remain_before}</b> → <b style="color:var(--teal)">${d.remain_after}</b></dd>
+      <dt>挂号费</dt><dd>¥${d.reg_fee.toFixed(2)}</dd>
+      <dt>事务耗时</dt><dd>${d.elapsed_ms} ms</dd>
+    </dl>
+    ${highlightSQL(d.sql)}`;
+  loadSchedules();     // 刷新号源显示
+}
+
+/* ---------- 并发抢号演示 ---------- */
+async function runConcurrency() {
+  const scheduleId = $('schedule').value;
+  if (!scheduleId) { showMsg($('ccMsg'), '请先在上方选择一个排班（演示会真实占用它的号源）', 'bad'); return; }
+  const n = Math.max(2, Math.min(30, +$('threads').value || 10));
+  $('btnCc').disabled = true;
+  showMsg($('ccMsg'), `正在用 ${n} 个线程并发抢号…`, 'info');
+  const r = await postJSON('/api/concurrency_demo', {schedule_id: +scheduleId, thread_count: n});
+  $('btnCc').disabled = false;
+  if (!r.ok) { showMsg($('ccMsg'), '演示失败：' + r.error, 'bad'); return; }
+  const d = r.data;
+  const good = !d.oversold && d.consumed === d.success_count;
+  showMsg($('ccMsg'),
+    good ? `结论：${d.thread_count} 个线程抢号，成功 ${d.success_count} 个，失败 ${d.failed_count} 个，`
+         + `号源 ${d.remain_before} → ${d.remain_after}，扣减数与成功数完全一致 —— 没有超卖。`
+         : '异常：检测到号源与成功数不一致！',
+    good ? 'ok' : 'bad');
+  let rows = '';
+  (d.success_detail || []).forEach(s => {
+    rows += `<tr><td>线程 ${s.thread}</td><td class="num">${s.appt_id}</td><td class="num">${s.queue_no}</td>
+             <td><span class="tag green">成功</span></td></tr>`;
+  });
+  (d.failed_detail || []).forEach(f => {
+    rows += `<tr><td>线程 ${f.thread}</td><td>—</td><td>—</td>
+             <td><span class="tag red">失败</span> <span class="hint">${esc(f.reason)}</span></td></tr>`;
+  });
+  $('ccResult').innerHTML = `
+    <div class="grid grid-4" style="margin:14px 0">
+      <div class="card stat"><div class="label">成功</div><div class="value teal">${d.success_count}</div></div>
+      <div class="card stat"><div class="label">失败</div><div class="value amber">${d.failed_count}</div></div>
+      <div class="card stat"><div class="label">号源变化</div><div class="value blue" style="font-size:19px">${d.remain_before} → ${d.remain_after}</div></div>
+      <div class="card stat"><div class="label">总耗时</div><div class="value" style="font-size:19px">${d.elapsed_ms} ms</div></div>
+    </div>
+    <div class="table-wrap" style="max-height:260px">
+      <table><thead><tr><th>线程</th><th class="num">预约ID</th><th class="num">顺序号</th><th>结果</th></tr></thead>
+      <tbody>${rows}</tbody></table>
+    </div>`;
+  loadSchedules();
+}
+</script>
+{% endblock %}
