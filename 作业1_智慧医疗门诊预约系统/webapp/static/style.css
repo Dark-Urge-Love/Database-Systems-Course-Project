@@ -508,6 +508,24 @@ button.close:hover { background: #f4f4f5; color: var(--ink); opacity: 1; }
   letter-spacing: 0;
 }
 
+/* 并发发药：一行式参数区 */
+.cc-form {
+  display: grid;
+  grid-template-columns: minmax(210px, 1.6fr) 100px 130px 150px auto;
+  gap: 16px; align-items: end; margin-bottom: 20px;
+}
+.cc-form .field { margin-bottom: 0; }
+.cc-form .field > span {
+  display: block; font-size: 13.5px; color: var(--ink-2);
+  margin-bottom: 8px; font-weight: 500;
+}
+.cc-form .field select { margin-top: 6px; }
+.cc-form button { height: 42px; }
+@media (max-width: 1000px) {
+  .cc-form { grid-template-columns: 1fr 1fr; }
+  .cc-form button { grid-column: 1 / -1; }
+}
+
 /* 档案字段编辑行 */
 .field-row {
   display: grid; grid-template-columns: 1fr 104px 60px 26px;
@@ -550,6 +568,7 @@ button.close:hover { background: #f4f4f5; color: var(--ink); opacity: 1; }
 .c-teal   { --c: var(--teal);   --c-soft: var(--teal-soft);   --c-line: var(--teal-line); }
 .c-amber  { --c: var(--amber);  --c-soft: var(--amber-soft);  --c-line: var(--amber-line); }
 .c-green  { --c: var(--green);  --c-soft: var(--green-soft);  --c-line: var(--green-line); }
+.c-slate  { --c: var(--slate);  --c-soft: #f5f6f7;             --c-line: #e3e5e8; }
 .c-slate  { --c: var(--slate);  --c-soft: var(--slate-soft);  --c-line: var(--slate-line); }
 
 /* ---------------- 响应式 ---------------- */

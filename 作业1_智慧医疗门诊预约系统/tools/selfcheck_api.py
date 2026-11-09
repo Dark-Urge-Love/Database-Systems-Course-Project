@@ -158,18 +158,29 @@ if sch:
 else:
     print("  [SKIP] 没有余量足够的排班")
 
-st, r = call("POST", "/api/concurrency_demo", {"schedule_id": sch[0]["schedule_id"] if sch else 1, "thread_count": 10})
+st, r = call("POST", "/api/dispense_concurrency",
+             {"drug_id": 2, "clients": 10, "qty": 1, "reset_stock": 5})
 d = r.get("data") or {}
 if r.get("ok"):
-    check("10) 10 线程并发抢号", True,
-          "成功 %s / 失败 %s / 耗时 %sms / 号源 %s->%s" % (
+    check("10) 10 窗口并发发药", True,
+          "成功 %s / 失败 %s / 耗时 %sms / 库存 %s->%s" % (
               d.get("success_count"), d.get("failed_count"), d.get("elapsed_ms"),
-              d.get("remain_before"), d.get("remain_after")))
-    check("    无超卖（成功数=号源减少）",
+              d.get("stock_before"), d.get("stock_after")))
+    check("    无超发（成功次数=库存减少）",
           d.get("oversold") is False and d.get("consumed") == d.get("success_count"),
-          "成功 %s, 号源减少 %s, oversold=%s" % (d.get("success_count"), d.get("consumed"), d.get("oversold")))
+          "成功 %s, 库存减少 %s, oversold=%s" % (
+              d.get("success_count"), d.get("consumed"), d.get("oversold")))
+    check("    逐次耗时已写入 access_log", d.get("log_count") == d.get("clients"),
+          "本次写入 %s 条日志" % d.get("log_count"))
 else:
-    check("10) 10 线程并发抢号", False, str(r.get("error"))[:60])
+    check("10) 10 窗口并发发药", False, str(r.get("error"))[:60])
+
+st, r = call("GET", "/api/access_logs")
+logs = (r.get("data") or {}).get("rows") or []
+check("    日志表可查（JOIN 药品名）", r.get("ok") and len(logs) > 0,
+      "共 %s 条，最近 1 条药品=%s" % (
+          (r.get("data") or {}).get("total"),
+          logs[0].get("drug_name") if logs else "—"))
 
 for case, extra in [("appointment_patient", {"patient_id": 1234}), ("visit_doctor", {"doctor_id": 5})]:
     st, r = call("POST", "/api/perf", dict(case=case, repeat=3, **extra))

@@ -11,6 +11,7 @@
   <button class="tab active" data-tab="drug" onclick="switchTab('drug', this)">药品目录</button>
   <button class="tab" data-tab="archive" onclick="switchTab('archive', this)">药品台账</button>
   <button class="tab" data-tab="report" onclick="switchTab('report', this)">运营报表</button>
+  <button class="tab" data-tab="concurrency" onclick="switchTab('concurrency', this)">并发发药</button>
 </div>
 
 <!-- ==================== 药品目录 ==================== -->
@@ -100,6 +101,46 @@
   </div>
 </section>
 
+<!-- ==================== 并发发药 ==================== -->
+<section id="tab-concurrency" style="display:none">
+  <div class="block c-amber">
+    <div class="block-head">
+      <span class="no">08</span>
+      <h2>并发发药</h2>
+      <span class="note">多客户端同时访问 · 逐次记录响应耗时</span>
+    </div>
+    <p class="hint" style="margin:-4px 0 16px">
+      药房有 N 个发药窗口，同一时刻给病人发同一种药。库存只剩几盒时，系统只能成功发出去这么多，
+      不能超发；每个窗口这次操作的响应耗时都会被记录下来。
+    </p>
+    <div class="cc-form">
+      <div class="field">
+        <span>药品</span>
+        <input id="ccQ" type="text" placeholder="输入药名筛选" oninput="filterCcDrugs()">
+        <select id="ccDrug" size="1" style="margin-top:6px"></select>
+      </div>
+      <label class="field"><span>窗口数</span>
+        <input type="number" id="ccClients" value="10" min="2" max="30"></label>
+      <label class="field"><span>每窗口发（盒）</span>
+        <input type="number" id="ccQty" value="1" min="1" max="50"></label>
+      <label class="field"><span>演示前库存重置为</span>
+        <input type="number" id="ccStock" value="5" min="0"></label>
+      <button onclick="runDispense()" id="btnCc">开始并发发药</button>
+    </div>
+    <div class="msg" id="ccMsg"></div>
+    <div id="ccResult"><div class="center-empty">选好药品和参数后点「开始并发发药」</div></div>
+  </div>
+
+  <div class="block c-slate">
+    <div class="block-head">
+      <span class="no">09</span>
+      <h2>访问性能日志</h2>
+      <span class="note">来自 access_log 表，每次访问一条</span>
+    </div>
+    <div id="logTable"><div class="center-empty">加载中…</div></div>
+  </div>
+</section>
+
 <!-- ==================== 执行记录（默认收起） ==================== -->
 <details class="sql-panel">
   <summary>查看实际执行的 SQL</summary>
@@ -137,7 +178,7 @@ function logSQL(sql) {
 }
 
 function switchTab(name, btn) {
-  ['drug', 'archive', 'report'].forEach(t => {
+  ['drug', 'archive', 'report', 'concurrency'].forEach(t => {
     V('tab-' + t).style.display = (t === name ? '' : 'none');
   });
   document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
@@ -149,6 +190,7 @@ function switchTab(name, btn) {
     loadReport('patient_flow');
     fillLedgerSelect();
   }
+  if (name === 'concurrency') { loadCcDrugs(); loadAccessLogs(); }
 }
 
 let modalSubmit = null;
@@ -471,6 +513,121 @@ async function fillLedgerSelect() {
   loadReport('drug_ledger');
 }
 
+/* ---------------- 并发发药 ---------------- */
+let CC_DRUGS = [];
+
+async function loadCcDrugs() {
+  if (CC_DRUGS.length) { filterCcDrugs(); return; }
+  const r = await api('/api/pharmacy/drug-options');
+  if (!r.ok) { V('ccDrug').innerHTML = '<option value="">药品读取失败</option>'; return; }
+  CC_DRUGS = r.data.rows || [];
+  filterCcDrugs();
+}
+
+function filterCcDrugs() {
+  const kw = (V('ccQ').value || '').trim().toLowerCase();
+  const list = kw
+    ? CC_DRUGS.filter(d => (d.name || '').toLowerCase().includes(kw)
+        || (d.spec || '').toLowerCase().includes(kw))
+    : CC_DRUGS;
+  const old = V('ccDrug').value;
+  V('ccDrug').innerHTML = list.length
+    ? list.map(d => '<option value="' + d.id + '">' + esc(d.name)
+        + (d.spec ? ' · ' + esc(d.spec) : '') + ' · 库存 ' + d.stock + '</option>').join('')
+    : '<option value="">没有匹配的药品</option>';
+  if (old && list.some(d => String(d.id) === old)) V('ccDrug').value = old;
+}
+
+async function runDispense() {
+  const drugId = V('ccDrug').value;
+  if (!drugId) { toast('ccMsg', '请先选择一种药品', 'bad'); return; }
+  const clients = Math.max(2, Math.min(30, +V('ccClients').value || 10));
+  const qty = Math.max(1, Math.min(50, +V('ccQty').value || 1));
+  const stock = V('ccStock').value === '' ? null : Math.max(0, +V('ccStock').value);
+
+  V('btnCc').disabled = true;
+  toast('ccMsg', '正在让 ' + clients + ' 个窗口同时发药…', 'info');
+  const r = await postJSON('/api/dispense_concurrency',
+    {drug_id: +drugId, clients: clients, qty: qty, reset_stock: stock});
+  V('btnCc').disabled = false;
+  if (!r.ok) { toast('ccMsg', '演示失败：' + r.error, 'bad'); return; }
+  renderDispense(r.data, drugId);
+  loadAccessLogs();
+  CC_DRUGS = [];          // 库存变了，重新拉一次下拉里的库存数
+  loadCcDrugs();
+}
+
+function renderDispense(d, drugId) {
+  const good = !d.oversold;
+  toast('ccMsg', good
+    ? d.clients + ' 个窗口同时发「' + d.drug.name + '」，成功 ' + d.success_count
+      + ' 个、失败 ' + d.failed_count + ' 个；库存 ' + d.stock_before + ' → ' + d.stock_after
+      + '，发出数量与成功次数完全一致 —— 没有超发。'
+    : '异常：库存变化与成功数对不上，检测到超发！', good ? 'ok' : 'bad');
+
+  const rows = d.detail.map(x =>
+    '<tr><td>窗口 ' + x.client + '</td>'
+    + '<td class="num">' + (x.ok ? d.qty : 0) + '</td>'
+    + '<td class="num">' + x.elapsed_ms.toFixed(2) + '</td>'
+    +     '<td>' + (x.ok
+        ? '<span style="color:var(--green)">已发出</span>'
+        : '<span style="color:var(--red)">' + esc(x.reason || '库存不足') + '</span>'
+      ) + '</td></tr>').join('');
+
+  V('ccResult').innerHTML = ''
+    + '<div class="stat-line" style="margin-top:4px">'
+    + '  <span>窗口 <b>' + d.clients + '</b></span>'
+    + '  <span>成功 <b style="color:var(--green)">' + d.success_count + '</b></span>'
+    + '  <span>失败 <b style="color:var(--faint)">' + d.failed_count + '</b></span>'
+    + '  <span>库存 <b>' + d.stock_before + ' → ' + d.stock_after + '</b></span>'
+    + '  <span>总耗时 <b>' + d.elapsed_ms + ' ms</b></span>'
+    + '</div>'
+    + '<div class="stat-line">'
+    + '  <span>平均响应 <b>' + d.avg_ms + ' ms</b></span>'
+    + '  <span>最快 <b>' + d.min_ms + ' ms</b></span>'
+    + '  <span>最慢 <b>' + d.max_ms + ' ms</b></span>'
+    + '  <span>吞吐 <b>' + d.qps + ' 次/秒</b></span>'
+    + '  <span>写入日志 <b>' + d.log_count + ' 条</b></span>'
+    + '</div>'
+    + '<div class="table-wrap" style="max-height:320px">'
+    + '<table class="fixed"><thead><tr><th>客户端</th><th class="num">本次发药</th>'
+    + '<th class="num">响应耗时（ms）</th><th>结果</th></tr></thead>'
+    + '<tbody>' + rows + '</tbody></table></div>';
+
+  logSQL('-- ' + d.clients + ' 个窗口各执行同一段事务，同时在跑\n'
+    + 'START TRANSACTION;\n'
+    + 'SELECT stock FROM drug WHERE drug_id = ' + drugId + ' FOR UPDATE;\n'
+    + 'UPDATE drug SET stock = stock - ' + d.qty + ' WHERE drug_id = ' + drugId + ';\n'
+    + 'COMMIT;');
+}
+
+async function loadAccessLogs() {
+  const r = await api('/api/access_logs');
+  if (!r.ok) { V('logTable').innerHTML = '<div class="center-empty">' + esc(r.error) + '</div>'; return; }
+  const rows = r.data.rows || [];
+  if (!rows.length) {
+    V('logTable').innerHTML = '<div class="center-empty">还没有访问记录，跑一次并发发药就会写进来</div>';
+    return;
+  }
+  let html = '<div class="table-wrap" style="max-height:340px"><table class="fixed"><thead><tr>'
+    + '<th>访问时间</th><th class="num">客户端</th><th>药品</th>'
+    + '<th class="num">数量</th><th class="num">耗时（ms）</th><th>结果</th>'
+    + '</tr></thead><tbody>';
+  rows.forEach(x => {
+    html += '<tr><td>' + esc(x.created_at) + '</td>'
+      + '<td class="num">' + x.client_no + '</td>'
+      + '<td>' + esc(x.drug_name || '—') + '</td>'
+      + '<td class="num">' + x.qty + '</td>'
+      + '<td class="num">' + (+x.elapsed_ms).toFixed(2) + '</td>'
+      + '<td>' + (x.ok
+          ? '<span style="color:var(--green)">成功</span>'
+          : '<span style="color:var(--faint)">库存不足</span>') + '</td></tr>';
+  });
+  html += '</tbody></table></div><div class="hint" style="margin-top:8px">共 '
+    + r.data.total + ' 条日志，这里显示最近 ' + rows.length + ' 条</div>';
+  V('logTable').innerHTML = html;
+}
+
 loadDrugs();
 
 /* 支持带参数直接打开某个页签或表单，便于分享链接 */
@@ -481,6 +638,11 @@ if (tabParam) {
   if (btn) switchTab(tabParam, btn);
 }
 if (params.get('new') === 'drug') setTimeout(() => openDrugForm(), 200);
+if (params.get('run') === 'dispense') (async () => {
+  switchTab('concurrency', document.querySelector('.tab[data-tab="concurrency"]'));
+  await loadCcDrugs();
+  await runDispense();
+})();
 if (params.get('new') === 'ledger') (async () => {
   switchTab('archive', document.querySelector('.tab[data-tab="archive"]'));
   await loadArchives();

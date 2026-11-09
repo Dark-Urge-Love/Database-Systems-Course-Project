@@ -9,9 +9,9 @@
 统计：吞吐量 TPS、平均/中位/P95/最大响应时间、成功率，并按秒采样，
 结果同时打印到屏幕、写入 CSV，便于在报告里画折线图。
 
-三种场景：
+三种场景（写场景与页面的「并发发药」同一套业务）：
   read   纯查询（单表索引查询 + 多表 join 统计）
-  write  纯写事务（挂号 T1：SELECT ... FOR UPDATE + INSERT + UPDATE）
+  write  纯写事务（药房发药 T2：SELECT ... FOR UPDATE + UPDATE stock）
   mixed  读写混合（默认，7:3）
 
 用法示例：
@@ -28,16 +28,12 @@ import statistics
 import sys
 import threading
 import time
-from datetime import date, timedelta
 
 import pymysql
 from pymysql.cursors import DictCursor
 
 PROJ_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJ_ROOT)
-
-TEST_PERIOD = "压测"          # 专门为压测插入的排班时段，测试结束会删除
-TEST_DATE = date(2099, 1, 1)
 
 
 # =====================================================================
@@ -55,42 +51,26 @@ def make_conn(args):
 # 压测数据准备 / 清理
 # =====================================================================
 def prepare(args, conn):
-    """建一条专用排班（号源充足），让写事务不会因为号源满而失败。"""
+    """选一种在用药品，把库存临时抬到一百万，让写事务不会因缺货而失败。
+       返回 (drug_id, 原始库存, 患者 ID 范围)。"""
     with conn.cursor() as cur:
-        cur.execute("SELECT MIN(doctor_id) AS d FROM doctor")
-        doctor_id = cur.fetchone()["d"]
         cur.execute(
-            "SELECT schedule_id, remain_slots FROM schedule "
-            "WHERE doctor_id = %s AND work_date = %s AND period = %s",
-            (doctor_id, TEST_DATE, TEST_PERIOD),
-        )
+            "SELECT drug_id, stock FROM drug WHERE status = 1 "
+            "ORDER BY stock DESC LIMIT 1")
         row = cur.fetchone()
-        if row:
-            cur.execute(
-                "UPDATE schedule SET total_slots = 1000000, remain_slots = 1000000 "
-                "WHERE schedule_id = %s",
-                (row["schedule_id"],),
-            )
-            schedule_id = row["schedule_id"]
-        else:
-            cur.execute(
-                "INSERT INTO schedule (doctor_id, work_date, period, total_slots, "
-                "remain_slots, reg_fee, room) VALUES (%s, %s, %s, 1000000, 1000000, 10.00, '压测')",
-                (doctor_id, TEST_DATE, TEST_PERIOD),
-            )
-            schedule_id = cur.lastrowid
+        if not row:
+            raise RuntimeError("drug 表没有在用药品，无法压测")
+        drug_id, stock_orig = row["drug_id"], row["stock"]
+        cur.execute("UPDATE drug SET stock = 1000000 WHERE drug_id = %s", (drug_id,))
         cur.execute("SELECT MIN(patient_id) AS p, MAX(patient_id) AS q FROM patient")
         pr = cur.fetchone()
-    return schedule_id, pr["p"], pr["q"]
+    return drug_id, stock_orig, pr["p"], pr["q"]
 
 
-def cleanup(conn, schedule_id):
-    """删掉压测产生的预约和排班，让数据库回到干净状态。"""
+def cleanup(conn, drug_id, stock_orig):
+    """把药品库存恢复成压测前的值，不留下任何脏数据。"""
     with conn.cursor() as cur:
-        cur.execute("DELETE FROM appointment WHERE schedule_id = %s", (schedule_id,))
-        n = cur.rowcount
-        cur.execute("DELETE FROM schedule WHERE schedule_id = %s", (schedule_id,))
-    return n
+        cur.execute("UPDATE drug SET stock = %s WHERE drug_id = %s", (stock_orig, drug_id))
 
 
 # =====================================================================
@@ -131,41 +111,25 @@ def op_range_query(conn, ctx):
         cur.fetchall()
 
 
-def op_register(conn, ctx):
+def op_dispense(conn, ctx):
     """
-    写事务 T1：挂号。
-    SELECT ... FOR UPDATE 锁住排班行 → 插入预约 → 扣减号源，全程一个事务。
+    写事务 T2：药房发药（与页面「并发发药」同一套逻辑）。
+    SELECT ... FOR UPDATE 锁住药品行 → 校验库存 → 扣减，全程一个事务。
     """
-    schedule_id = ctx["schedule_id"]
-    pid = random.randint(ctx["pmin"], ctx["pmax"])
+    drug_id = ctx["drug_id"]
     conn.begin()
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT remain_slots FROM schedule WHERE schedule_id = %s FOR UPDATE",
-                (schedule_id,),
-            )
+                "SELECT stock FROM drug WHERE drug_id = %s FOR UPDATE", (drug_id,))
             row = cur.fetchone()
-            if not row or row["remain_slots"] <= 0:
+            if not row or row["stock"] <= 0:
                 conn.rollback()
-                raise RuntimeError("号源已满")
+                raise RuntimeError("库存不足")
             cur.execute(
-                "SELECT COALESCE(MAX(queue_no), 0) + 1 AS n FROM appointment "
-                "WHERE schedule_id = %s", (schedule_id,),
-            )
-            queue_no = cur.fetchone()["n"]
-            cur.execute(
-                "INSERT INTO appointment (patient_id, schedule_id, appt_time, queue_no, status) "
-                "VALUES (%s, %s, NOW(), %s, '已预约')",
-                (pid, schedule_id, queue_no),
-            )
-            appt_id = cur.lastrowid
-            cur.execute(
-                "UPDATE schedule SET remain_slots = remain_slots - 1 WHERE schedule_id = %s",
-                (schedule_id,),
-            )
+                "UPDATE drug SET stock = stock - 1 WHERE drug_id = %s", (drug_id,))
         conn.commit()
-        return appt_id
+        return drug_id
     except Exception:
         try:
             conn.rollback()
@@ -174,29 +138,19 @@ def op_register(conn, ctx):
         raise
 
 
-def op_cancel(conn, ctx):
-    """写事务：取消预约并把号源还回去（和挂号配对，保证号源不会被耗尽）"""
-    schedule_id = ctx["schedule_id"]
+def op_restock(conn, ctx):
+    """写事务：药房补货入库（和发药配对，保证压测期间库存不会被耗尽）"""
+    drug_id = ctx["drug_id"]
     conn.begin()
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT appt_id FROM appointment WHERE schedule_id = %s "
-                "AND status = '已预约' ORDER BY appt_id LIMIT 1 FOR UPDATE",
-                (schedule_id,),
-            )
-            row = cur.fetchone()
-            if not row:
-                conn.rollback()
-                return None
-            cur.execute("UPDATE appointment SET status = '已取消' WHERE appt_id = %s",
-                        (row["appt_id"],))
+                "SELECT stock FROM drug WHERE drug_id = %s FOR UPDATE", (drug_id,))
+            cur.fetchone()
             cur.execute(
-                "UPDATE schedule SET remain_slots = remain_slots + 1 WHERE schedule_id = %s",
-                (schedule_id,),
-            )
+                "UPDATE drug SET stock = stock + 10 WHERE drug_id = %s", (drug_id,))
         conn.commit()
-        return row["appt_id"]
+        return drug_id
     except Exception:
         try:
             conn.rollback()
@@ -209,10 +163,10 @@ def op_cancel(conn, ctx):
 SCENARIOS = {
     "read":  [("index_query", 55, op_index_query), ("join_query", 30, op_join_query),
               ("range_query", 15, op_range_query)],
-    "write": [("register", 70, op_register), ("cancel", 30, op_cancel)],
+    "write": [("dispense", 70, op_dispense), ("restock", 30, op_restock)],
     "mixed": [("index_query", 40, op_index_query), ("join_query", 20, op_join_query),
-              ("range_query", 10, op_range_query), ("register", 20, op_register),
-              ("cancel", 10, op_cancel)],
+              ("range_query", 10, op_range_query), ("dispense", 20, op_dispense),
+              ("restock", 10, op_restock)],
 }
 
 
@@ -302,12 +256,13 @@ def run(args):
     print("=" * 66)
 
     conn = make_conn(args)
-    schedule_id, pmin, pmax = prepare(args, conn)
-    print(" [准备] 压测排班 schedule_id=%s，患者 ID 范围 %s~%s" % (schedule_id, pmin, pmax))
-    print(" [准备] 测试结束后会自动删除压测产生的数据，不会污染业务数据")
+    drug_id, stock_orig, pmin, pmax = prepare(args, conn)
+    print(" [准备] 压测药品 drug_id=%s（库存临时抬到 1,000,000），患者 ID 范围 %s~%s"
+          % (drug_id, pmin, pmax))
+    print(" [准备] 测试结束后会自动恢复该药品的原有库存，不会污染业务数据")
     print("-" * 66)
 
-    ctx = {"schedule_id": schedule_id, "pmin": pmin, "pmax": pmax}
+    ctx = {"drug_id": drug_id, "pmin": pmin, "pmax": pmax}
     collector = Collector()
     collector.start = time.time()
     stop_at = collector.start + args.duration
@@ -413,8 +368,8 @@ def run(args):
     print(" （summary 里的「秒/完成请求数」两列可以直接在 Excel 里画 TPS 折线图）")
 
     # ---------- 清理 ----------
-    n = cleanup(conn, schedule_id)
-    print(" [清理] 已删除压测排班及其产生的 %d 条预约记录" % n)
+    cleanup(conn, drug_id, stock_orig)
+    print(" [清理] 药品 %s 的库存已恢复为 %s" % (drug_id, stock_orig))
     conn.close()
     print("=" * 66)
     return 0

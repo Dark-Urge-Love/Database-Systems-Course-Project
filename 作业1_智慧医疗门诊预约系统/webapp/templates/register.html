@@ -4,7 +4,7 @@
 {% block content %}
 <div class="page-head c-green">
   <h1>患者挂号</h1>
-  <p>一次挂号 = 扣减号源 + 生成预约，两条语句在同一个事务里完成；右下角可多线程并发抢同一个号源。</p>
+  <p>一次挂号 = 扣减号源 + 生成预约，两条语句在同一个事务里完成，中途任何一步失败都整体回滚。</p>
 </div>
 
 <div class="grid grid-sidebar">
@@ -56,23 +56,6 @@
         <span class="note">事务执行过程与实际 SQL</span>
       </div>
       <div id="regResult"><div class="center-empty">提交后显示事务执行结果与 SQL</div></div>
-    </div>
-
-    <div class="block c-amber">
-      <div class="block-head">
-        <span class="no">03</span>
-        <h2>并发抢号</h2>
-        <span class="note">验证不超卖并记录耗时</span>
-      </div>
-      <p class="hint" style="margin:-4px 0 12px">N 个线程同时抢同一个号源，看成功数与号源减少数是否一致。</p>
-      <div class="btn-row">
-        <label class="field" style="margin:0;width:110px"><span>线程数</span>
-          <input type="number" id="threads" value="10" min="2" max="30">
-        </label>
-        <button onclick="runConcurrency()" id="btnCc" style="align-self:flex-end">开始并发抢号</button>
-      </div>
-      <div class="msg" id="ccMsg"></div>
-      <div id="ccResult"></div>
     </div>
   </div>
 </div>
@@ -146,46 +129,6 @@ async function doRegister() {
     </dl>
     ${highlightSQL(d.sql)}`;
   loadSchedules();     // 刷新号源显示
-}
-
-/* ---------- 并发抢号演示 ---------- */
-async function runConcurrency() {
-  const scheduleId = $('schedule').value;
-  if (!scheduleId) { showMsg($('ccMsg'), '请先在上方选择一个排班（演示会真实占用它的号源）', 'bad'); return; }
-  const n = Math.max(2, Math.min(30, +$('threads').value || 10));
-  $('btnCc').disabled = true;
-  showMsg($('ccMsg'), `正在用 ${n} 个线程并发抢号…`, 'info');
-  const r = await postJSON('/api/concurrency_demo', {schedule_id: +scheduleId, thread_count: n});
-  $('btnCc').disabled = false;
-  if (!r.ok) { showMsg($('ccMsg'), '演示失败：' + r.error, 'bad'); return; }
-  const d = r.data;
-  const good = !d.oversold && d.consumed === d.success_count;
-  showMsg($('ccMsg'),
-    good ? `结论：${d.thread_count} 个线程抢号，成功 ${d.success_count} 个，失败 ${d.failed_count} 个，`
-         + `号源 ${d.remain_before} → ${d.remain_after}，扣减数与成功数完全一致 —— 没有超卖。`
-         : '异常：检测到号源与成功数不一致！',
-    good ? 'ok' : 'bad');
-  let rows = '';
-  (d.success_detail || []).forEach(s => {
-    rows += `<tr><td>线程 ${s.thread}</td><td class="num">${s.appt_id}</td><td class="num">${s.queue_no}</td>
-             <td style="color:var(--green)">成功</td></tr>`;
-  });
-  (d.failed_detail || []).forEach(f => {
-    rows += `<tr><td>线程 ${f.thread}</td><td>—</td><td>—</td>
-             <td style="color:var(--red)">失败 <span class="hint">${esc(f.reason)}</span></td></tr>`;
-  });
-  $('ccResult').innerHTML = `
-    <div class="stat-line">
-      <span>成功 <b style="color:var(--green)">${d.success_count}</b></span>
-      <span>失败 <b style="color:var(--faint)">${d.failed_count}</b></span>
-      <span>号源 <b>${d.remain_before} → ${d.remain_after}</b></span>
-      <span>耗时 <b>${d.elapsed_ms} ms</b></span>
-    </div>
-    <div class="table-wrap" style="max-height:280px">
-      <table class="fixed"><thead><tr><th>线程</th><th class="num">预约ID</th><th class="num">顺序号</th><th>结果</th></tr></thead>
-      <tbody>${rows}</tbody></table>
-    </div>`;
-  loadSchedules();
 }
 </script>
 {% endblock %}

@@ -59,8 +59,8 @@
     </div>
     <div class="req-row">
       <span class="chip c-green">额外 3</span>
-      <span class="v">多用户并发访问 + 性能记录<em>10 线程同时抢一个号源，统计成功数与耗时</em></span>
-      <span class="go"><a class="btn-go ghost c-green" href="/register">去演示 →</a></span>
+      <span class="v">多用户并发访问 + 性能记录<em>多个药房窗口同时发同一种药，验证不超发并逐次记录响应耗时</em></span>
+      <span class="go"><a class="btn-go ghost c-green" href="/ops?tab=concurrency">去演示 →</a></span>
     </div>
   </div>
 
@@ -80,7 +80,7 @@
           <tr><td>基本 6</td><td>跨数据表操作</td><td>运营报表</td><td>5/6/7 表 JOIN 处方链路；台账 JOIN 药品目录</td></tr>
           <tr><td>额外 1</td><td>事务支持</td><td>患者挂号</td><td>SELECT…FOR UPDATE + INSERT + UPDATE 同事务</td></tr>
           <tr><td>额外 2</td><td>索引支持</td><td>索引对比</td><td>走索引与全表扫描的 EXPLAIN 计划、耗时对比</td></tr>
-          <tr><td>额外 3</td><td>多用户并发</td><td>挂号页 → 并发抢号</td><td>10 线程同抢一个号源，验证不超卖并记录耗时</td></tr>
+          <tr><td>额外 3</td><td>多用户并发</td><td>药房业务 → 并发发药</td><td>N 个窗口同发一种药，验证不超发并把每次响应耗时写入 access_log</td></tr>
           <tr><td>数据</td><td>≥5 表 / ≥10 万条</td><td>本页</td><td>10 表 22 万条，见下方各表数据量</td></tr>
           <tr><td>关系</td><td>1-1 / 1-N / N-M</td><td>设计文档</td><td>预约↔就诊、科室→医生→排班→预约、处方↔药品</td></tr>
         </tbody>
@@ -103,6 +103,10 @@
       <span class="c">{{ '{:,}'.format(r.rows) }}</span>
     </div>
     {% endfor %}
+  </div>
+  <div class="hint" style="margin-top:12px">
+    另有访问日志表 <span class="mono">access_log</span>，逐条记录并发访问的响应耗时，
+    现有 <b>{{ '{:,}'.format(log_count) }}</b> 条；它属于运行日志，不计入上面的业务数据量。
   </div>
 </section>
 

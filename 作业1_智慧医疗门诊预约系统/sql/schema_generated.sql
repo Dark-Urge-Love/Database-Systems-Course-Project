@@ -166,3 +166,18 @@ CREATE TABLE payment (
   CONSTRAINT fk_pay_visit FOREIGN KEY (visit_id) REFERENCES visit (visit_id),
   CONSTRAINT ck_pay_amount CHECK (amount >= 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='缴费记录表';
+
+-- ---- access_log（访问性能日志）----
+CREATE TABLE access_log (
+  `log_id` BIGINT AUTO_INCREMENT COMMENT '日志ID',
+  `scene` VARCHAR(20) NOT NULL COMMENT '场景：dispense 发药',
+  `client_no` INT NOT NULL COMMENT '客户端序号',
+  `drug_id` INT COMMENT '药品ID（弱关联，不设外键）',
+  `qty` INT NOT NULL COMMENT '本次发药数量',
+  `ok` TINYINT NOT NULL COMMENT '结果：1成功 0库存不足',
+  `elapsed_ms` DECIMAL(8,2) NOT NULL COMMENT '本次访问耗时(ms)',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '访问时间',
+  PRIMARY KEY (`log_id`),
+  KEY idx_log_time (created_at),
+  KEY idx_log_drug (drug_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='访问性能日志表';

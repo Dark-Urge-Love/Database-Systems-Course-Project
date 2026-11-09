@@ -190,3 +190,22 @@ CREATE TABLE payment (
   CONSTRAINT fk_pay_visit FOREIGN KEY (visit_id) REFERENCES visit (visit_id),
   CONSTRAINT ck_pay_amount CHECK (amount >= 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='缴费记录表';
+
+-- ---------------------------------------------------------------------
+-- 11. 访问性能日志表（多客户端并发访问时，逐次记录响应耗时）
+--     刻意不设外键：日志只做弱关联，避免影响药品主数据的维护；
+--     drug_id 上建普通索引，按药品查历史耗时同样很快。
+-- ---------------------------------------------------------------------
+CREATE TABLE access_log (
+  log_id     BIGINT AUTO_INCREMENT COMMENT '日志ID',
+  scene      VARCHAR(20) NOT NULL COMMENT '场景：dispense 发药',
+  client_no  INT NOT NULL COMMENT '客户端序号',
+  drug_id    INT COMMENT '药品ID（弱关联，不设外键）',
+  qty        INT NOT NULL COMMENT '本次发药数量',
+  ok         TINYINT NOT NULL COMMENT '结果：1成功 0库存不足',
+  elapsed_ms DECIMAL(8,2) NOT NULL COMMENT '本次访问耗时(ms)',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '访问时间',
+  PRIMARY KEY (log_id),
+  KEY idx_log_time (created_at),
+  KEY idx_log_drug (drug_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='访问性能日志表';

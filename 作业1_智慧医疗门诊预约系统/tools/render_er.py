@@ -16,7 +16,7 @@ p.sub{font-size:12px;color:#6b7280;margin:0 0 18px}
 svg{max-width:none !important}
 </style></head><body>
 <h1>智慧医疗 · 社区门诊预约与处方管理系统　ER 图</h1>
-<p class="sub">10 个实体 · 1-1（预约↔就诊）/ 1-N（科室→医生→排班→预约）/ N-M（处方↔药品，经 prescription_item）·
+<p class="sub">11 个实体 · 1-1（预约↔就诊）/ 1-N（科室→医生→排班→预约）/ N-M（处方↔药品，经 prescription_item）·
 由 tools/model_gen.py 从 sql/er_model.json 自动生成</p>
 <pre class="mermaid">""" + mmd + """</pre>
 <script type="module">

@@ -47,6 +47,14 @@ def inject_globals():
     return {"APP_TITLE": config.APP_TITLE, "conn": connection_banner()}
 
 
+@bp.after_request
+def no_cache_api(resp):
+    """接口数据永远新鲜：库存、日志这类数字不允许被浏览器缓存。"""
+    if request.path.startswith("/api/"):
+        resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
 def _ok(data=None, **extra):
     payload = {"ok": True}
     if data is not None:
@@ -90,14 +98,19 @@ def handle_any_error(e):                                       # noqa: ANN001
 # =====================================================================
 @bp.route("/")
 def dashboard():
+    log_count = 0
     try:
         rows, total = dao.table_row_counts()
         db_ok, db_err = True, None
+        try:
+            log_count = dao.access_log_count()
+        except pymysql.MySQLError:
+            log_count = 0
     except Exception as e:                                     # noqa: BLE001
         rows, total = [], 0
         db_ok, db_err = False, str(e)
     return render_template("dashboard.html", rows=rows, total=total,
-                           db_ok=db_ok, db_err=db_err)
+                           db_ok=db_ok, db_err=db_err, log_count=log_count)
 
 
 # =====================================================================
@@ -158,24 +171,38 @@ def api_register():
         return _err("数据库错误：%s" % str(e))
 
 
-@bp.route("/api/concurrency_demo", methods=["POST"])
-def api_concurrency_demo():
-    """多线程并发抢号，证明不会超卖。"""
+@bp.route("/api/dispense_concurrency", methods=["POST"])
+def api_dispense_concurrency():
+    """多个药房窗口同时发同一种药：验证库存不超发，并记录每个窗口的响应耗时。"""
     body = request.get_json(silent=True) or {}
     try:
-        schedule_id = int(body.get("schedule_id") or 0)
-        thread_count = min(int(body.get("thread_count") or 10), 30)
+        drug_id = int(body.get("drug_id") or 0)
+        clients = min(max(int(body.get("clients") or 10), 2), 30)
+        qty = min(max(int(body.get("qty") or 1), 1), 50)
+        reset_stock = body.get("reset_stock")
+        reset_stock = None if reset_stock in (None, "") else max(int(reset_stock), 0)
     except (TypeError, ValueError):
         return _err("参数格式不正确")
-    if not schedule_id:
-        return _err("请选择一个排班")
-    t0 = time.time()
+    if not drug_id:
+        return _err("请先选择一种药品")
     try:
-        result = services.concurrency_register_demo(schedule_id, thread_count)
-        result["elapsed_ms"] = round((time.time() - t0) * 1000, 2)
+        result = services.dispense_concurrency(drug_id, clients, qty, reset_stock)
         return _ok(result)
     except BizError as e:
         return _err(str(e))
+    except pymysql.MySQLError as e:
+        return _err(_friendly(e))
+
+
+@bp.route("/api/access_logs")
+def api_access_logs():
+    """最近的并发访问性能记录（从 access_log 表读，不是前端缓存）。"""
+    try:
+        rows = dao.recent_access_logs(12)
+        return _ok({"rows": [_fmt_row(r) for r in rows],
+                    "total": dao.access_log_count()})
+    except pymysql.MySQLError as e:
+        return _err(_friendly(e))
 
 
 # =====================================================================
@@ -351,6 +378,18 @@ def api_drugs():
             rows = [_drug_row(r) for r in cur.fetchall()]
         return _ok({"rows": rows, "fields": DRUG_FIELDS,
                     "total": len(rows), "keyword": q})
+    except pymysql.MySQLError as e:
+        return _err(_friendly(e))
+
+
+@bp.route("/api/pharmacy/drug-options")
+def api_drug_options():
+    """并发发药的下拉候选：全部在用药品（含当前库存）。"""
+    try:
+        rows = dao.query_all(
+            "SELECT drug_id AS id, drug_name AS name, spec, unit, stock "
+            "FROM drug WHERE status = 1 ORDER BY drug_name")
+        return _ok({"rows": rows, "total": len(rows)})
     except pymysql.MySQLError as e:
         return _err(_friendly(e))
 

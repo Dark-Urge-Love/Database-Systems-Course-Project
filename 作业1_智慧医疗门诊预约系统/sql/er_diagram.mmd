@@ -92,6 +92,16 @@ erDiagram
         DATETIME pay_time "支付时间"
         VARCHAR(10) status "状态：已支付/已退款"
     }
+    access_log {
+        BIGINT log_id PK "日志ID"
+        VARCHAR(20) scene "场景：dispense 发药"
+        INT client_no "客户端序号"
+        INT drug_id "药品ID（弱关联，不设外键）"
+        INT qty "本次发药数量"
+        TINYINT ok "结果：1成功 0库存不足"
+        DECIMAL elapsed_ms "本次访问耗时(ms)"
+        DATETIME created_at "访问时间"
+    }
     department ||--o{ doctor : "隶属科室"
     doctor ||--o{ schedule : "排班"
     patient ||--o{ appointment : "发起预约"
@@ -103,3 +113,4 @@ erDiagram
     visit ||--o{ payment : "产生缴费"
     patient ||--o{ visit : "就诊"
     doctor ||--o{ visit : "接诊医生"
+    drug ||--o{ access_log : "发药访问记录"

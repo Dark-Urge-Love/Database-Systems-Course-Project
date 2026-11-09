@@ -31,6 +31,32 @@ def execute(sql, args=None):
 
 
 # =====================================================================
+# 访问性能日志（多客户端并发访问时逐条记录响应耗时）
+# =====================================================================
+def log_access_batch(rows):
+    """rows: [(scene, client_no, drug_id, qty, ok, elapsed_ms), ...] 一次批量写入。"""
+    if not rows:
+        return 0
+    with get_cursor(commit=True) as cur:
+        cur.executemany(
+            "INSERT INTO access_log (scene, client_no, drug_id, qty, ok, elapsed_ms) "
+            "VALUES (%s, %s, %s, %s, %s, %s)", rows)
+        return cur.rowcount
+
+
+def recent_access_logs(limit=12):
+    return query_all(
+        "SELECT l.log_id, l.client_no, l.drug_id, l.qty, l.ok, l.elapsed_ms, l.created_at, "
+        "d.drug_name "
+        "FROM access_log l LEFT JOIN drug d ON d.drug_id = l.drug_id "
+        "ORDER BY l.log_id DESC LIMIT %s", [limit])
+
+
+def access_log_count():
+    return query_one("SELECT COUNT(*) AS c FROM access_log")["c"]
+
+
+# =====================================================================
 # 概览 / 统计
 # =====================================================================
 TABLES = [
