@@ -25,14 +25,11 @@ bp = Blueprint("main", __name__)
 # 公共：把当前连接信息塞给所有模板
 # =====================================================================
 def connection_banner():
-    profile = getattr(config, "ACTIVE_PROFILE", "server")
     base = {
         "host": config.DB_HOST,
         "port": config.DB_PORT,
         "user": config.DB_USER,
         "db": config.DB_NAME,
-        "profile": profile,
-        "is_local": profile == "local",
     }
     try:
         info = dao.server_info()

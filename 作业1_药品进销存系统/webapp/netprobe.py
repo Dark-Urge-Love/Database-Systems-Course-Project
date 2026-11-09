@@ -5,17 +5,17 @@
 背景：Ubuntu(WSL) 每次重启后，它的虚拟网卡 IP 都会重新分配
 （例如 192.168.150.181 → 192.168.144.30），写死在配置里会天天连不上。
 
-本模块按"从快到慢"的顺序找可用的 MySQL，找到就把地址与账号写回 config：
+本模块只找 **Linux 服务器上的 MySQL**（课程硬性要求：服务器端部署在 Linux），
+不提供任何"连本机 MySQL"的退路。按"从快到慢"的顺序找：
 
-  1) 环境变量 DB_HOST —— 用户显式指定，最高优先级，坚决不猜、不回退
+  1) 环境变量 DB_HOST —— 用户显式指定，最高优先级，不再猜测
   2) 上次成功过的地址缓存 .db_host_cache
-  3) Ubuntu 启动时写出的 wsl_ip.txt
-  4) 扫描 WSL/Hyper-V 虚拟网卡所在网段，找开放着 MySQL 端口的主机
-  5) 本机 127.0.0.1（开发环境回退；可用 ALLOW_LOCAL_FALLBACK=0 关掉）
+  3) Ubuntu 启动时写出的 wsl_ip.txt（或 init_server_db.sh 写出的）
+  4) 配置里的默认地址
+  5) 扫描 WSL/Hyper-V 虚拟网卡所在网段，找开放 MySQL 端口的主机
 
-前三步与第 4 步都用"服务器账号"（druguser）验证，且要求 @@datadir 是 Linux 路径，
-确保找到的是那台 Linux 服务器，而不是本机或别的什么服务。
-第 5 步改用"本机账号"（root），且不要求 Linux 路径 —— 它明确就是开发环境。
+每个候选地址都要用真实账号登录成功、且 @@datadir 是 Linux 路径（以 / 开头），
+才算找到 —— 这样即使本机也装了 MySQL、账号还恰好相同，也不会连错对象。
 """
 import ipaddress
 import os
@@ -64,10 +64,10 @@ def port_open(host, port=3306, timeout=_SCAN_TIMEOUT):
 
 def verify_login(host, port, user, password, database, timeout=3, require_linux=True):
     """
-    用真实账号连一次，确认这台 MySQL 就是我们要找的那台。
+    用真实账号连一次，确认这台 MySQL 就是我们要找的那台 Linux 服务器。
 
-    require_linux=True 时会额外检查 @@datadir 是不是 Linux 风格路径（以 / 开头），
-    这样即使本机也装了一台账号相同的 MySQL，也不会被误认成 Linux 服务器。
+    require_linux=True 时额外检查 @@datadir 是否为 Linux 路径（以 / 开头），
+    避免把本机 Windows 上的 MySQL 误认成服务器。
     """
     try:
         import pymysql
@@ -75,7 +75,7 @@ def verify_login(host, port, user, password, database, timeout=3, require_linux=
                                database=database or None, connect_timeout=timeout)
         try:
             with conn.cursor() as cur:
-                cur.execute("SELECT @@datadir AS d, @@version_comment AS v")
+                cur.execute("SELECT @@datadir AS d")
                 row = cur.fetchone()
             datadir = (row[0] if isinstance(row, (list, tuple)) else row.get("d")) or ""
             if require_linux and not str(datadir).startswith("/"):
@@ -184,10 +184,10 @@ def _read_ip_file(path):
 
 def candidate_hints(config):
     """
-    不需要扫描就能得到的"服务器"候选地址，按可信度从高到低：
-      1) Ubuntu 启动脚本写出的 wsl_ip.txt（最新、最可靠）
+    不需要扫描就能得到的候选地址，按可信度从高到低：
+      1) wsl_ip.txt（init_server_db.sh / Ubuntu 启动脚本写出，最新）
       2) 上次成功连接并缓存的地址
-      3) 配置文件里的服务器默认地址
+      3) 配置文件里的默认地址
     """
     hints = []
 
@@ -197,7 +197,7 @@ def candidate_hints(config):
 
     add(_read_ip_file(os.path.join(PROJ_ROOT, "wsl_ip.txt")))
     add(_read_ip_file(CACHE_FILE))
-    add(getattr(config, "SERVER_HOST", config.DB_HOST))
+    add(config.DB_HOST)
     return hints
 
 
@@ -209,25 +209,13 @@ def _write_cache(host):
         pass
 
 
-def _apply(config, host, user, password, profile):
-    """探测成功：把地址、账号、来源标记写回 config。"""
-    if (host, user) != (config.DB_HOST, config.DB_USER):
-        print(" [发现] 数据库目标已切换为 %s（账号 %s，%s）"
-              % (host, user, "Linux 服务器" if profile == "server" else "本机 MySQL"))
-    config.DB_HOST = host
-    config.DB_USER = user
-    config.DB_PASSWORD = password
-    config.ACTIVE_PROFILE = profile
-    if profile == "server":
-        _write_cache(host)
-
-
 # =====================================================================
 # 对外主函数
 # =====================================================================
 def ensure_server(config, force=False, verbose=True):
     """
-    确保 config 指向一台可用的 MySQL，返回最终使用的 host；都不可用时返回 None。
+    确保 config.DB_HOST 指向一台可用的 Linux 服务器 MySQL。
+    找到返回 host，找不到返回 None（调用方据此显示"数据库未连接"）。
 
     为避免"每个失败的请求都重新扫一遍网段"（一次扫描约 2 秒，会让页面明显变慢），
     这里做了冷却：20 秒内只真正探测一次，其余调用直接返回。
@@ -244,57 +232,50 @@ def ensure_server(config, force=False, verbose=True):
         return None
     _last_attempt = now
 
-    # ① 用户显式指定 → 尊重用户，只做连通性提示，不自动改、不回退
+    # ① 用户显式指定 → 尊重用户，只做连通性提示，不自动改
     if getattr(config, "DB_HOST_FROM_ENV", False) and not force:
         if verify_login(config.DB_HOST, config.DB_PORT, config.DB_USER,
                         config.DB_PASSWORD, config.DB_NAME, require_linux=False):
-            config.ACTIVE_PROFILE = "custom"
             log(" [发现] 使用环境变量指定的服务器 %s：连接成功" % config.DB_HOST)
             return config.DB_HOST
-        log(" [发现] 环境变量指定的服务器 %s 连接失败（DB_HOST 已显式指定，不做回退）"
-            % config.DB_HOST)
+        log(" [发现] 环境变量指定的服务器 %s 连接失败" % config.DB_HOST)
         return None
 
-    # ② 服务器：候选提示地址（wsl_ip.txt / 缓存 / 配置默认）
-    #    先花 0.8 秒探端口，不通就直接跳过，避免为死地址白等 3 秒登录超时
+    # ② 候选提示地址：wsl_ip.txt → 缓存 → 配置默认
+    #    先花 0.8 秒探端口，不通直接跳过，避免为死地址白等 3 秒登录超时
     for host in candidate_hints(config):
         if not port_open(host, config.DB_PORT, 0.8):
             continue
-        if verify_login(host, config.DB_PORT, config.SERVER_USER,
-                        config.SERVER_PASSWORD, config.DB_NAME, require_linux=True):
-            _apply(config, host, config.SERVER_USER, config.SERVER_PASSWORD, "server")
-            log(" [发现] Linux 服务器 %s：连接成功" % host)
+        if verify_login(host, config.DB_PORT, config.DB_USER,
+                        config.DB_PASSWORD, config.DB_NAME, require_linux=True):
+            if host != config.DB_HOST:
+                log(" [发现] 数据库服务器地址已更新为 %s" % host)
+            else:
+                log(" [发现] 数据库服务器 %s：连接成功" % host)
+            config.DB_HOST = host
+            _write_cache(host)
             return host
 
-    # ③ 服务器：扫描 WSL 虚拟网卡所在网段
-    if getattr(config, "AUTO_DISCOVER", True):
-        nets = wsl_networks()
-        if nets:
-            log(" [发现] 未找到已知地址，开始扫描网段：%s（约几秒）"
-                % ", ".join(str(n) for n in nets))
-            for host in scan_network(nets, config.DB_PORT):
-                if verify_login(host, config.DB_PORT, config.SERVER_USER,
-                                config.SERVER_PASSWORD, config.DB_NAME, require_linux=True):
-                    _apply(config, host, config.SERVER_USER, config.SERVER_PASSWORD, "server")
-                    log(" [发现] 扫描到 Linux 服务器：%s" % host)
-                    return host
-            log(" [发现] 扫描完成，没有找到 Linux 服务器")
-        else:
-            log(" [发现] 未检测到 WSL/Hyper-V 虚拟网卡")
+    if not getattr(config, "AUTO_DISCOVER", True):
+        return None
 
-    # ④ 回退本机 MySQL（开发环境）
-    if getattr(config, "ALLOW_LOCAL_FALLBACK", False):
-        local_host = getattr(config, "LOCAL_HOST", "127.0.0.1")
-        local_user = getattr(config, "LOCAL_USER", "root")
-        local_pwd = getattr(config, "LOCAL_PASSWORD", "")
-        if verify_login(local_host, config.DB_PORT, local_user, local_pwd,
-                        config.DB_NAME, require_linux=False):
-            _apply(config, local_host, local_user, local_pwd, "local")
-            log(" [提示] 未连上 Linux 服务器，已回退到本机 MySQL %s（开发模式）" % local_host)
-            log("        课程要求的正式环境是 Linux 服务器；答辩前请打开 Ubuntu 并在其中")
-            log("        执行 deploy/init_server_db.sh 建好 druguser 账号与 drug_db 数据。")
-            return local_host
-        log(" [发现] 本机 MySQL 也不可用")
+    # ③ 慢路径：扫描 WSL 虚拟网卡所在网段
+    nets = wsl_networks()
+    if nets:
+        log(" [发现] 未找到已知地址，开始扫描网段：%s（约几秒）"
+            % ", ".join(str(n) for n in nets))
+        for host in scan_network(nets, config.DB_PORT):
+            if verify_login(host, config.DB_PORT, config.DB_USER,
+                            config.DB_PASSWORD, config.DB_NAME, require_linux=True):
+                log(" [发现] 扫描到数据库服务器：%s" % host)
+                config.DB_HOST = host
+                _write_cache(host)
+                return host
+        log(" [发现] 扫描完成，没有找到可用的数据库服务器")
+    else:
+        log(" [发现] 未检测到 WSL/Hyper-V 虚拟网卡")
 
-    log(" [发现] 没有可用数据库（Linux 服务器与本机 MySQL 均连接失败）")
+    log(" [发现] 没有找到 Linux 服务器上的 MySQL")
+    log("        排查：① 打开 Ubuntu；② 在 Ubuntu 里执行 dbup 启动 MySQL；")
+    log("              ③ 若账号/数据还没建，执行 deploy/init_server_db.sh")
     return None

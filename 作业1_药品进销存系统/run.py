@@ -30,12 +30,8 @@ def main():
     print(" 浏览器访问   : http://%s:%d" % (
         "127.0.0.1" if config.WEB_HOST in ("0.0.0.0", "127.0.0.1") else config.WEB_HOST,
         config.WEB_PORT))
-    profile_cn = {"server": "Linux 服务器（课程环境）",
-                  "local": "本机 MySQL（开发模式）",
-                  "custom": "环境变量手动指定"}.get(config.ACTIVE_PROFILE, config.ACTIVE_PROFILE)
-    print(" 数据库目标   : %s:%d  (库 %s / 用户 %s)" % (
+    print(" 数据库服务器 : %s:%d  (库 %s / 用户 %s)" % (
         config.DB_HOST, config.DB_PORT, config.DB_NAME, config.DB_USER))
-    print(" 目标类型     : %s" % profile_cn)
     print("=" * 62)
 
     # 再自检一次，连不上给出明确提示，但页面照常启动（页面顶部会显示红色告警）
@@ -44,16 +40,13 @@ def main():
         info = dao.server_info()
         print(" [自检] 数据库连接成功：MySQL %s @ %s" % (info["version"], info["hostname"]))
         print("        数据目录：%s" % info["datadir"])
-        if config.ACTIVE_PROFILE == "local":
-            print("        ⚠ 注意：这是本机 MySQL，课程要求的正式环境是 Linux 服务器。")
-            print("          打开 Ubuntu 后执行 deploy/init_server_db.sh，下次启动会自动切回服务器。")
     except Exception as e:                                     # noqa: BLE001
         print(" [自检] 数据库连接失败：%s" % e)
         print("        常见原因：")
         print("          1) Ubuntu 没在运行 —— 打开开始菜单里的 Ubuntu 图标即可")
-        print("          2) MySQL 没启动 —— 在 Ubuntu 里执行： sudo service mysql start")
-        print("          3) Ubuntu 里还没建 druguser 账号与 drug_db 数据 ——")
-        print("             在 Ubuntu 里执行： bash deploy/init_server_db.sh")
+        print("          2) MySQL 没启动 —— 在 Ubuntu 里执行： dbup")
+        print("          3) 服务器上还没建 druguser 账号与 drug_db 数据 ——")
+        print("             在 Ubuntu 的项目目录里执行： bash deploy/init_server_db.sh")
         print("          4) 地址不对 —— Ubuntu 里执行 hostname -I 看 IP，")
         print("             然后 set DB_HOST=那个IP && python run.py")
         print("        （服务仍会启动，页面顶部会显示告警，修好后刷新即可）")
