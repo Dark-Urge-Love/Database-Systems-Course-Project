@@ -322,3 +322,21 @@ pre.sql .kw { color: #7fd6ff; font-weight: 600; }
 .badge.bad { color: var(--red); }
 
 .tag.blue { background: var(--primary-soft); color: var(--primary-dark); }
+
+/* =====================================================================
+   数据管理台
+   ===================================================================== */
+.table-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: border-color .15s ease, background .15s ease;
+}
+.table-item:hover { border-color: var(--primary); }
+.table-item.active { border-color: var(--primary); background: var(--primary-soft); }

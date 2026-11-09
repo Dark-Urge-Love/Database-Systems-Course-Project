@@ -44,23 +44,23 @@
       </thead>
       <tbody>
         <tr><td><span class="tag">基本 1</span></td><td>创建数据表</td>
-            <td>药房采购工作台 第 1 步：<span class="mono">CREATE TABLE drug_quote</span>（供应商报价登记表）</td>
-            <td><a href="/ops">去演示</a></td></tr>
+            <td>数据管理台：自己填表名和字段（名称/类型/是否必填），点「创建表」执行 <span class="mono">CREATE TABLE</span></td>
+            <td><a href="/ops">去操作</a></td></tr>
         <tr><td><span class="tag">基本 2</span></td><td>插入数据</td>
-            <td>第 2 步：<span class="mono">INSERT</span> 录入 8 条报价 + <span class="mono">INSERT…SELECT</span> 新药批量上架</td>
-            <td><a href="/ops">去演示</a></td></tr>
+            <td>数据管理台：选中任意表 →「插入数据」→ 按字段填表单写入一行（药品入库、患者建档、自建表录入）</td>
+            <td><a href="/ops">去操作</a></td></tr>
         <tr><td><span class="tag">基本 3</span></td><td>修改数据</td>
-            <td>第 3 步：<span class="mono">UPDATE…JOIN</span> 按报价调整目录内药品价格</td>
-            <td><a href="/ops">去演示</a></td></tr>
+            <td>数据管理台：点某行「改」→ 表单回填 → 保存，执行 <span class="mono">UPDATE … WHERE 主键</span>（如药品调价）</td>
+            <td><a href="/ops">去操作</a></td></tr>
         <tr><td><span class="tag">基本 4</span></td><td>删除数据</td>
-            <td>第 4 步：<span class="mono">DELETE…LEFT JOIN</span> 淘汰滞销药品（外键保护受引用数据）</td>
-            <td><a href="/ops">去演示</a></td></tr>
+            <td>数据管理台：点某行「删」→ 确认后 <span class="mono">DELETE</span>；被引用的行会收到外键保护提示</td>
+            <td><a href="/ops">去操作</a></td></tr>
         <tr><td><span class="tag">基本 5</span></td><td>删除数据表</td>
-            <td>第 5 步：<span class="mono">DROP TABLE drug_quote</span> 报价归档后销毁临时表</td>
-            <td><a href="/ops">去演示</a></td></tr>
+            <td>数据管理台：在「我创建的表」里点「删表」，执行 <span class="mono">DROP TABLE</span>（业务表受保护不可删）</td>
+            <td><a href="/ops">去操作</a></td></tr>
         <tr><td><span class="tag">基本 6</span></td><td>跨数据表操作</td>
-            <td>运营报表：医生开药金额 Top10（5 表 JOIN）、患者完整就诊流水（7 表 JOIN）</td>
-            <td><a href="/ops">去演示</a></td></tr>
+            <td>数据管理台底部报表：医生开药金额 Top10（5 表 JOIN）、患者完整就诊流水（7 表 JOIN）</td>
+            <td><a href="/ops">去操作</a></td></tr>
         <tr><td><span class="tag green">额外 1</span></td><td>事务支持</td>
             <td>患者挂号：<span class="mono">SELECT…FOR UPDATE</span> + INSERT + UPDATE 三语句同事务，失败整体回滚</td>
             <td><a href="/register">去演示</a></td></tr>

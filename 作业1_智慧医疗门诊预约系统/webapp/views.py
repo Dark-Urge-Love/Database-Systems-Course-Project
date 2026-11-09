@@ -6,6 +6,7 @@ Views 层：页面路由与 Ajax 接口
 访问 Linux 服务器上的 MySQL。页面顶部固定显示当前连接的目标服务器地址，
 方便答辩时直接证明"数据不在本机"。
 """
+import re
 import time
 import traceback
 
@@ -146,7 +147,7 @@ def api_register():
             "INSERT INTO appointment(patient_id, schedule_id, appt_time, queue_no, status) "
             "VALUES (%s, %s, NOW(), %s, '已预约');\n"
             "UPDATE schedule SET remain_slots = remain_slots - 1 WHERE schedule_id=%s;\n"
-            "COMMIT;" % (schedule_id, patient_id, info["queue_no"], schedule_id)
+            "COMMIT;" % (schedule_id, patient_id, schedule_id, info["queue_no"], schedule_id)
         )
         return _ok(info)
     except BizError as e:
@@ -157,7 +158,7 @@ def api_register():
 
 @bp.route("/api/concurrency_demo", methods=["POST"])
 def api_concurrency_demo():
-    """多线程并发抢号，证明不会超卖（标志性实践 2）。"""
+    """多线程并发抢号，证明不会超卖。"""
     body = request.get_json(silent=True) or {}
     try:
         schedule_id = int(body.get("schedule_id") or 0)
@@ -176,197 +177,278 @@ def api_concurrency_demo():
 
 
 # =====================================================================
-# 药房采购工作台：把课程要求的六项基本操作融合进一个连贯的业务剧本
+# 数据管理台：用户亲自建表 / 插入 / 修改 / 删除 / 删表 / 跨表查询
 # ------------------------------------------------------------------
-# 剧本：某医药供应商向药房提交了一份药品报价单，采购员按流程处理——
-#   建报价登记表 → 录入报价并上架新药 → 按报价调价 → 滞销药品淘汰
-#   → 报价单完成使命后销毁临时表 → 管理层查看运营报表（跨表 JOIN）
-# 每一步都有真实的业务动机，同时一一对应课程要求：
-#   ① CREATE TABLE  ② INSERT  ③ UPDATE  ④ DELETE  ⑤ DROP TABLE  ⑥⑦ JOIN
+# 标识符（表名/列名）无法参数化，统一走正则白名单校验后再拼入 SQL；
+# 值全部用 %s 参数化传入；删表只允许删自建表，业务表受保护。
 # =====================================================================
-STEPS = {
-    "create": {
-        "tag": "课程要求 ① CREATE TABLE",
-        "title": "收到供应商报价单，建立报价登记表",
-        "desc": "采购员收到「华润医药」提交的药品报价单。按采购制度，报价单需要先登记备案："
-                "为本次报价创建一张临时报价登记表 drug_quote，记录报价药品、价格、可供量与报价日期。",
-        "sql": [
-            "DROP TABLE IF EXISTS drug_quote",
-            """CREATE TABLE drug_quote (
-                 quote_id      INT AUTO_INCREMENT PRIMARY KEY COMMENT '报价流水号',
-                 drug_name     VARCHAR(100) NOT NULL COMMENT '药品名称',
-                 spec          VARCHAR(50)  NOT NULL COMMENT '规格',
-                 unit          VARCHAR(10)  COMMENT '单位',
-                 manufacturer  VARCHAR(100) COMMENT '生产厂家',
-                 quote_price   DECIMAL(8,2) NOT NULL COMMENT '报价单价(元)',
-                 supply_stock  INT NOT NULL DEFAULT 0 COMMENT '可供数量',
-                 is_new        TINYINT NOT NULL DEFAULT 0 COMMENT '1=新药推介 0=目录内品种调价',
-                 quote_date    DATE NOT NULL COMMENT '报价日期',
-                 quote_note    VARCHAR(100) COMMENT '备注'
-               ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='供应商报价登记表(临时,流程结束后销毁)'""",
-        ],
-        "show": "SHOW FULL COLUMNS FROM drug_quote",
-    },
-    "insert": {
-        "tag": "课程要求 ② INSERT（含跨表 INSERT…SELECT）",
-        "title": "录入报价明细，新药批量上架",
-        "desc": "把报价单的 8 条明细登记入表。其中 4 条是对目录内现有品种的调价，另外 4 条是新药推介——"
-                "经药师初审合格后，新药直接批量上架进入药品目录 drug（INSERT…SELECT…WHERE NOT EXISTS 防重复上架）。",
-        "sql": [
-            """INSERT INTO drug_quote
-               (drug_name, spec, unit, manufacturer, quote_price, supply_stock, is_new, quote_date, quote_note)
-               VALUES ('阿莫西林胶囊',        '0.25g*24粒',   '盒', '华北制药', 15.80, 400, 0, '2026-11-09', '目录内品种调价'),
-                      ('布洛芬缓释胶囊',      '0.3g*20粒',    '盒', '中美史克', 18.60, 350, 0, '2026-11-09', '目录内品种调价'),
-                      ('奥美拉唑肠溶胶囊',    '20mg*14粒',    '盒', '阿斯利康', 22.40, 300, 0, '2026-11-09', '目录内品种调价'),
-                      ('苯磺酸氨氯地平片',    '5mg*7片',      '盒', '辉瑞',    12.90, 500, 0, '2026-11-09', '目录内品种调价'),
-                      ('磷酸奥司他韦颗粒',    '30mg*10袋',    '盒', '东阳光',   45.00, 200, 1, '2026-11-09', '新药推介'),
-                      ('蒲地蓝消炎口服液',    '10ml*12支',    '盒', '济川药业', 32.50, 260, 1, '2026-11-09', '新药推介'),
-                      ('依巴斯汀片',          '10mg*12片',    '盒', '杭州澳医', 25.80, 180, 1, '2026-11-09', '新药推介'),
-                      ('瑞舒伐他汀钙片',      '10mg*7片',     '盒', '京新药业', 28.60, 220, 1, '2026-11-09', '新药推介')""",
-            """INSERT INTO drug (drug_name, spec, unit, manufacturer, price, stock, is_rx, status)
-               SELECT q.drug_name, q.spec, q.unit, q.manufacturer, q.quote_price, q.supply_stock, 1, 1
-               FROM drug_quote q
-               WHERE q.is_new = 1
-                 AND NOT EXISTS (SELECT 1 FROM drug d
-                                 WHERE d.drug_name = q.drug_name AND d.spec = q.spec)""",
-        ],
-        "show": "SELECT drug_id, drug_name, spec, manufacturer, price, stock "
-                "FROM drug WHERE drug_id > 500 ORDER BY drug_id",
-        "precheck": "SELECT 1 FROM information_schema.tables "
-                    "WHERE table_schema=DATABASE() AND table_name='drug_quote'",
-    },
-    "update": {
-        "tag": "课程要求 ③ UPDATE（跨表 UPDATE…JOIN 调价）",
-        "title": "按最新报价调整目录内药品价格",
-        "desc": "采购委员会审批通过：目录内 4 个品种按供应商最新报价执行调价。"
-                "报价表与药品目录按「药品名 + 规格」关联（UPDATE…JOIN），一次更新同步生效，"
-                "并输出调价前后对比。",
-        "sql": [
-            """UPDATE drug d
-               JOIN drug_quote q ON d.drug_name = q.drug_name AND d.spec = q.spec
-               SET d.price = q.quote_price
-               WHERE q.is_new = 0""",
-        ],
-        "show": "SELECT d.drug_id, d.drug_name, d.spec, d.price AS 调价后单价, q.quote_price AS 报价单价 "
-                "FROM drug d JOIN drug_quote q ON d.drug_name = q.drug_name AND d.spec = q.spec "
-                "WHERE q.is_new = 0 ORDER BY d.drug_id",
-        "precheck": "SELECT 1 FROM information_schema.tables "
-                    "WHERE table_schema=DATABASE() AND table_name='drug_quote'",
-    },
-    "delete": {
-        "tag": "课程要求 ④ DELETE（跨表条件删除，外键安全）",
-        "title": "滞销与试销不达标药品淘汰下架",
-        "desc": "药剂科季度清理：本次推介的新药试销期内没有任何处方销售记录，予以下架；"
-                "目录内老药若库存为零且历史上也从未被开过处方（LEFT JOIN 处方明细判空），同样淘汰。"
-                "凡被处方引用的药品受外键约束保护，一律不可删除。",
-        "sql": [
-            """DELETE d FROM drug d
-               LEFT JOIN prescription_item i ON i.drug_id = d.drug_id
-               WHERE i.presc_id IS NULL
-                 AND (d.drug_id > 500 OR d.stock = 0)""",
-        ],
-        "show": "SELECT COUNT(*) AS 药品目录现存品种数 FROM drug",
-        "precheck": "SELECT 1 FROM information_schema.tables "
-                    "WHERE table_schema=DATABASE() AND table_name='drug_quote'",
-    },
-    "drop": {
-        "tag": "课程要求 ⑤ DROP TABLE（临时表生命周期结束）",
-        "title": "报价单归档，临时报价表完成使命销毁",
-        "desc": "报价结果已全部落地到药品目录 drug，按采购制度报价登记表留存 30 天后销毁。"
-                "临时表用完即删，不给主库留下垃圾数据——这正是业务中 DROP TABLE 的典型用途。",
-        "sql": ["DROP TABLE IF EXISTS drug_quote"],
-        "show": "SELECT COUNT(*) AS 表是否还存在 FROM information_schema.tables "
-                "WHERE table_schema=DATABASE() AND table_name='drug_quote'",
-    },
+_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+_TYPE_MAP = {
+    "INT": "INT",
+    "TINYINT": "TINYINT",
+    "DECIMAL(10,2)": "DECIMAL(10,2)",
+    "VARCHAR(50)": "VARCHAR(50)",
+    "VARCHAR(100)": "VARCHAR(100)",
+    "VARCHAR(255)": "VARCHAR(255)",
+    "TEXT": "TEXT",
+    "DATE": "DATE",
+    "DATETIME": "DATETIME",
 }
 
-REPORTS = {
-    "join": {
-        "tag": "课程要求 ⑥ JOIN（5 表连接 + 聚合）",
-        "title": "医生开药金额 Top10（药剂科绩效月报）",
-        "desc": "药剂科每月统计各医生开药金额用于合理用药审查：prescription_item → prescription → visit → doctor → department 五表连接后分组汇总。",
-        "special": "doctor_revenue",
-    },
-    "join2": {
-        "tag": "课程要求 ⑥ JOIN（7 表连接，患者全流水）",
-        "title": "患者完整就诊流水（客服查询）",
-        "desc": "客服接到患者来电咨询历史就诊：从患者出发经预约、排班、医生、科室、就诊、处方、明细、药品七表连接，还原该患者每一次就诊的完整链路。",
-        "special": "patient_flow",
-    },
-}
+BUSINESS_TABLES = {"drug": "药品目录", "patient": "患者档案"}
+CORE_TABLES = {"department", "doctor", "patient", "schedule", "appointment",
+               "visit", "prescription", "drug", "prescription_item", "payment"}
 
-# 兼容旧接口名
-OPS = {**STEPS, **REPORTS}
+
+def _check_ident(name):
+    if not name or not _IDENT.match(name):
+        raise BizError("名称不合法：%s（只允许字母、数字、下划线，且以字母或下划线开头）" % name)
+
+
+def _list_tables(cur):
+    cur.execute(
+        "SELECT table_name FROM information_schema.tables "
+        "WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE' "
+        "ORDER BY table_name")
+    return [r.get("TABLE_NAME") or r.get("table_name") for r in cur.fetchall()]
+
+
+def _table_meta(cur, table):
+    """列元数据：列名 / 类型 / 是否可空 / 是否主键 / 是否自增。"""
+    _check_ident(table)
+    cur.execute(
+        "SELECT column_name, column_type, is_nullable, column_key, extra "
+        "FROM information_schema.columns "
+        "WHERE table_schema = DATABASE() AND table_name = %s ORDER BY ordinal_position",
+        (table,))
+    cols = []
+    for r in cur.fetchall():
+        name = r.get("COLUMN_NAME") or r.get("column_name")
+        cols.append({
+            "name": name,
+            "type": (r.get("COLUMN_TYPE") or r.get("column_type") or "").upper(),
+            "nullable": (r.get("IS_NULLABLE") or r.get("is_nullable")) == "YES",
+            "pk": (r.get("COLUMN_KEY") or r.get("column_key") or "") == "PRI",
+            "auto": "auto_increment" in (r.get("EXTRA") or r.get("extra") or "").lower(),
+        })
+    if not cols:
+        raise BizError("表 %s 不存在" % table)
+    pk = next((c["name"] for c in cols if c["pk"]), cols[0]["name"])
+    return cols, pk
+
+
+def _clean_values(cols, raw):
+    """按真实列过滤提交的值；可空列留空按 NULL 处理。"""
+    by_name = {c["name"]: c for c in cols}
+    unknown = [k for k in raw if k not in by_name]
+    if unknown:
+        raise BizError("未知列：%s" % ", ".join(unknown))
+    out = {}
+    for k, v in raw.items():
+        c = by_name[k]
+        if c["auto"]:
+            continue
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            out[k] = None if c["nullable"] else ""
+        else:
+            out[k] = v
+    return out
 
 
 @bp.route("/ops")
 def ops_page():
-    return render_template("ops.html", steps=STEPS, reports=REPORTS)
+    return render_template("ops.html")
 
 
-@bp.route("/api/ops", methods=["POST"])
-def api_ops():
-    body = request.get_json(silent=True) or {}
-    key = body.get("op")
-    if key not in OPS:
-        return _err("未知操作")
-    op = OPS[key]
+@bp.route("/api/crud/tables")
+def api_crud_tables():
+    with get_cursor() as cur:
+        tables = _list_tables(cur)
+    business = [{"name": t, "cn": BUSINESS_TABLES[t]} for t in tables if t in BUSINESS_TABLES]
+    mine = [t for t in tables if t not in CORE_TABLES]
+    return _ok({"business": business, "mine": mine})
 
-    # 前置检查：业务流程有先后依赖（如先有报价表才能录入报价）
-    if op.get("precheck"):
-        with get_cursor() as cur:
-            cur.execute(op["precheck"])
-            if not cur.fetchone():
-                return _err("请先执行第 1 步「建立报价登记表」，报价表尚不存在")
 
-    steps = []
-    t0 = time.time()
+@bp.route("/api/crud/table")
+def api_crud_table():
+    table = request.args.get("name") or ""
     try:
-        # 特殊：复杂 join 报表（只读）
-        if op.get("special") == "doctor_revenue":
-            rows = dao.report_doctor_revenue(10)
-            steps.append({"sql": "SELECT d.doctor_name, dp.dept_name, COUNT(DISTINCT pr.presc_id) ... "
-                                 "FROM prescription_item i JOIN prescription pr ... "
-                                 "JOIN visit v ... JOIN doctor d ... JOIN department dp ... "
-                                 "GROUP BY ... ORDER BY 开药金额 DESC LIMIT 10",
-                          "rowcount": len(rows), "elapsed_ms": 0})
-            return _ok({"steps": steps, "rows": rows, "columns": list(rows[0].keys()) if rows else [],
-                        "elapsed_ms": round((time.time() - t0) * 1000, 2)})
-        if op.get("special") == "patient_flow":
-            pid = int(body.get("patient_id") or 1)
-            rows = dao.report_patient_flow(pid, 20)
-            steps.append({"sql": "7 表 LEFT JOIN，查询 patient_id=%d 的完整就诊流水" % pid,
-                          "rowcount": len(rows), "elapsed_ms": 0})
-            return _ok({"steps": steps, "rows": rows, "columns": list(rows[0].keys()) if rows else [],
-                        "elapsed_ms": round((time.time() - t0) * 1000, 2)})
+        with get_cursor() as cur:
+            cols, pk = _table_meta(cur, table)
+            cur.execute("SELECT * FROM `{}` ORDER BY `{}` DESC LIMIT 50".format(table, pk))
+            rows = cur.fetchall()
+        return _ok({"columns": cols, "pk": pk, "rows": rows})
+    except BizError as e:
+        return _err(str(e))
 
-        # DDL/DML：在同一个事务里执行，成功提交、失败回滚
-        with transaction() as cur:
-            for sql in op["sql"]:
-                s0 = time.time()
-                cur.execute(sql)
-                steps.append({"sql": sql.strip(),
-                              "rowcount": cur.rowcount if cur.rowcount != -1 else 0,
-                              "elapsed_ms": round((time.time() - s0) * 1000, 2)})
 
-        rows, columns = [], []
-        if op.get("show"):
-            with get_cursor() as cur:
-                cur.execute(op["show"])
-                rows = cur.fetchall()
-                columns = list(rows[0].keys()) if rows else [c[0] for c in (cur.description or [])]
-
-        return _ok({"steps": steps, "rows": rows, "columns": columns,
-                    "elapsed_ms": round((time.time() - t0) * 1000, 2)})
+@bp.route("/api/crud/create_table", methods=["POST"])
+def api_crud_create_table():
+    body = request.get_json(silent=True) or {}
+    table = (body.get("name") or "").strip()
+    sql = None
+    try:
+        _check_ident(table)
+        raw_cols = body.get("columns") or []
+        if len(raw_cols) < 1:
+            return _err("至少需要一个字段")
+        defs = []
+        seen = set()
+        for c in raw_cols:
+            cname = (c.get("name") or "").strip()
+            _check_ident(cname)
+            if cname.lower() == "id":
+                return _err("字段名不能叫 id（系统自动生成主键 id）")
+            if cname in seen:
+                return _err("字段重复：%s" % cname)
+            seen.add(cname)
+            t = _TYPE_MAP.get(c.get("type") or "")
+            if not t:
+                return _err("不支持的字段类型：%s" % c.get("type"))
+            defs.append("`%s` %s%s" % (cname, t, " NOT NULL" if c.get("notnull") else ""))
+        sql = ("CREATE TABLE `{}` (id INT AUTO_INCREMENT PRIMARY KEY, {}) "
+               "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4".format(table, ", ".join(defs)))
+        with get_cursor(commit=True) as cur:
+            cur.execute(sql)
+        return _ok({"sql": sql, "message": "表 {} 已创建".format(table)})
+    except BizError as e:
+        return _err(str(e))
     except pymysql.MySQLError as e:
-        return _err("SQL 执行失败：%s" % str(e), steps=steps)
-    except Exception as e:                                     # noqa: BLE001
-        return _err("执行异常：%s" % str(e), steps=steps,
-                    trace=traceback.format_exc().splitlines()[-3:])
+        return _err(_friendly(e, sql))
+
+
+@bp.route("/api/crud/drop_table", methods=["POST"])
+def api_crud_drop_table():
+    body = request.get_json(silent=True) or {}
+    table = body.get("table") or ""
+    try:
+        _check_ident(table)
+        if table in CORE_TABLES:
+            return _err("业务表 {} 受保护，只能删除自己创建的表".format(table))
+        sql = "DROP TABLE IF EXISTS `{}`".format(table)
+        with get_cursor(commit=True) as cur:
+            cur.execute(sql)
+        return _ok({"sql": sql, "message": "表 {} 已删除".format(table)})
+    except BizError as e:
+        return _err(str(e))
+    except pymysql.MySQLError as e:
+        return _err(_friendly(e))
+
+
+@bp.route("/api/crud/insert", methods=["POST"])
+def api_crud_insert():
+    body = request.get_json(silent=True) or {}
+    table = body.get("table") or ""
+    try:
+        with get_cursor(commit=True) as cur:
+            cols, pk = _table_meta(cur, table)
+            values = _clean_values(cols, body.get("values") or {})
+            keys = list(values.keys())
+            if not keys:
+                return _err("没有可写入的字段")
+            sql = "INSERT INTO `{}` ({}) VALUES ({})".format(
+                table,
+                ", ".join("`%s`" % k for k in keys),
+                ", ".join(["%s"] * len(keys)))
+            args = [values[k] for k in keys]
+            cur.execute(sql, args)
+            new_id = cur.lastrowid
+        return _ok({"sql": sql, "params": args, "id": new_id, "rowcount": 1})
+    except pymysql.MySQLError as e:
+        return _err(_friendly(e))
+
+
+@bp.route("/api/crud/update", methods=["POST"])
+def api_crud_update():
+    body = request.get_json(silent=True) or {}
+    table = body.get("table") or ""
+    try:
+        with get_cursor(commit=True) as cur:
+            cols, pk = _table_meta(cur, table)
+            values = _clean_values(cols, body.get("values") or {})
+            keys = list(values.keys())
+            if not keys:
+                return _err("没有要修改的字段")
+            pk_value = body.get("pk_value")
+            sql = "UPDATE `{}` SET {} WHERE `{}` = %s".format(
+                table, ", ".join("`%s` = %%s" % k for k in keys), pk)
+            args = [values[k] for k in keys] + [pk_value]
+            cur.execute(sql, args)
+        return _ok({"sql": sql, "params": args, "rowcount": cur.rowcount})
+    except pymysql.MySQLError as e:
+        return _err(_friendly(e))
+
+
+@bp.route("/api/crud/delete", methods=["POST"])
+def api_crud_delete():
+    body = request.get_json(silent=True) or {}
+    table = body.get("table") or ""
+    try:
+        with get_cursor(commit=True) as cur:
+            cols, pk = _table_meta(cur, table)
+            sql = "DELETE FROM `{}` WHERE `{}` = %s".format(table, pk)
+            args = [body.get("pk_value")]
+            cur.execute(sql, args)
+        return _ok({"sql": sql, "params": args, "rowcount": cur.rowcount})
+    except pymysql.MySQLError as e:
+        return _err(_friendly(e))
+
+
+def _friendly(e, sql=None):
+    """把常见 MySQL 报错翻译成人话（其余原样返回）。"""
+    code = e.args[0] if e.args else None
+    msgs = {
+        1451: "该记录正被其他表引用（外键约束保护），不能删除。先删除引用它的记录再试。",
+        1452: "写入失败：引用的记录不存在（外键约束）。",
+        1062: "唯一字段冲突：已有相同主键/唯一值的记录。",
+        1050: "该表已存在，换一个表名。",
+        1146: "表不存在。",
+        1049: "数据库不存在。",
+        1406: "数据太长，超出字段长度限制。",
+        1265: "数据格式与字段类型不匹配（如向数字字段写了文字）。",
+        1292: "日期格式不正确，DATE 请用 2026-01-31 这样的格式。",
+    }
+    msg = msgs.get(code, "数据库错误（%s）：%s" % (code, str(e)))
+    if sql:
+        msg += "\n执行的 SQL：" + sql
+    return msg
 
 
 # =====================================================================
-# 索引与性能对比（标志性实践 3）
+# 跨数据表操作：两张固定 JOIN 报表（只读）
+# =====================================================================
+REPORTS = {
+    "doctor_revenue": {
+        "name": "医生开药金额 Top10（5 表 JOIN）",
+        "desc": "prescription_item → prescription → visit → doctor → department",
+    },
+    "patient_flow": {
+        "name": "患者完整就诊流水（7 表 JOIN）",
+        "desc": "appointment → patient → schedule → doctor → department → visit → prescription_item → drug",
+    },
+}
+
+
+@bp.route("/api/report", methods=["POST"])
+def api_report():
+    body = request.get_json(silent=True) or {}
+    name = body.get("name")
+    if name not in REPORTS:
+        return _err("未知报表")
+    try:
+        if name == "doctor_revenue":
+            rows = dao.report_doctor_revenue(10)
+        else:
+            pid = int(body.get("patient_id") or 1)
+            rows = dao.report_patient_flow(pid, 20)
+        return _ok({"rows": rows,
+                    "columns": list(rows[0].keys()) if rows else [],
+                    "count": len(rows)})
+    except pymysql.MySQLError as e:
+        return _err(_friendly(e))
+
+
+# =====================================================================
 # 索引支持：同一查询在「走索引」与「强制绕过索引」两种情况下对比
 # =====================================================================
 PERF_CASES = {
@@ -375,21 +457,17 @@ PERF_CASES = {
         "table": "appointment",
         "index": "idx_appt_patient",
         "with_sql": "SELECT SQL_NO_CACHE a.appt_id, a.appt_time, a.queue_no, a.status "
-                    "FROM appointment a WHERE a.patient_id = %s",
-        "without_sql": "SELECT SQL_NO_CACHE a.appt_id, a.appt_time, a.queue_no, a.status "
-                       "FROM appointment a IGNORE INDEX (idx_appt_patient, idx_appt_patient_time) "
-                       "WHERE a.patient_id = %s",
+                    "FROM appointment a{ignore} WHERE a.patient_id = %s",
+        "ignore": ["idx_appt_patient", "idx_appt_patient_time"],
         "param": "patient_id",
     },
     "visit_doctor": {
         "title": "按医生统计就诊量（visit，3 万行）",
         "table": "visit",
         "index": "idx_visit_doctor",
-        "with_sql": "SELECT SQL_NO_CACHE v.doctor_id, COUNT(*) AS cnt FROM visit v "
+        "with_sql": "SELECT SQL_NO_CACHE v.doctor_id, COUNT(*) AS cnt FROM visit v{ignore} "
                     "WHERE v.doctor_id = %s GROUP BY v.doctor_id",
-        "without_sql": "SELECT SQL_NO_CACHE v.doctor_id, COUNT(*) AS cnt "
-                       "FROM visit v IGNORE INDEX (idx_visit_doctor) "
-                       "WHERE v.doctor_id = %s GROUP BY v.doctor_id",
+        "ignore": ["idx_visit_doctor"],
         "param": "doctor_id",
     },
 }
@@ -441,19 +519,25 @@ def api_perf():
 
     with get_cursor() as cur:
         cur.execute(
-            "SELECT COUNT(*) AS c FROM information_schema.statistics "
-            "WHERE table_schema = DATABASE() AND table_name = %s AND index_name = %s",
-            (case["table"], case["index"]),
+            "SELECT DISTINCT index_name FROM information_schema.statistics "
+            "WHERE table_schema = DATABASE() AND table_name = %s",
+            (case["table"],),
         )
-        index_exists = cur.fetchone()["c"] > 0
+        existing = {r["INDEX_NAME"] or r["index_name"] for r in cur.fetchall()}
+        index_exists = case["index"] in existing
 
     try:
+        # 只忽略真实存在的索引（缺 index.sql 时也能跑，只是对比不明显）
+        ignored = [i for i in case["ignore"] if i in existing]
+        ignore_clause = (" IGNORE INDEX (" + ", ".join(ignored) + ")") if ignored else ""
+        without_sql = case["with_sql"].replace("{ignore}", ignore_clause)
         with get_cursor() as cur:
-            plan_without = _explain(cur, case["without_sql"], args)
-            time_without = _timed(cur, case["without_sql"], args, repeat)
+            plan_without = _explain(cur, without_sql, args)
+            time_without = _timed(cur, without_sql, args, repeat)
         with get_cursor() as cur:
-            plan_with = _explain(cur, case["with_sql"], args)
-            time_with = _timed(cur, case["with_sql"], args, repeat)
+            with_sql = case["with_sql"].replace("{ignore}", "")
+            plan_with = _explain(cur, with_sql, args)
+            time_with = _timed(cur, with_sql, args, repeat)
     except pymysql.MySQLError as e:
         return _err("执行失败：%s" % str(e))
 
@@ -467,7 +551,7 @@ def api_perf():
         "index_exists": index_exists,
         "param": param,
         "repeat": repeat,
-        "without": {"plan": plan_without, "time": time_without, "sql": case["without_sql"]},
+        "without": {"plan": plan_without, "time": time_without, "sql": without_sql},
         "with": {"plan": plan_with, "time": time_with, "sql": case["with_sql"]},
         "speedup": speedup,
     })

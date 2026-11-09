@@ -150,3 +150,21 @@ def report_patient_flow(patient_id, limit=20):
         "ORDER BY a.appt_time DESC, i.item_id LIMIT %s",
         [patient_id, limit],
     )
+
+
+def list_all_tables():
+    """数据库中所有表（含用户自建的演示表）+ 精确行数，用于左侧数据目录。"""
+    rows = query_all(
+        "SELECT table_name FROM information_schema.tables "
+        "WHERE table_schema = DATABASE() ORDER BY table_name"
+    )
+    result = []
+    for r in rows:
+        t = r["table_name"] if "table_name" in r else r["TABLE_NAME"]
+        try:
+            n = query_one("SELECT COUNT(*) AS c FROM `%s`" % t)["c"]
+        except Exception:                                      # noqa: BLE001
+            n = None
+        result.append({"table": t, "cn": TABLE_CN.get(t) or "自建表",
+                       "rows": n})
+    return result

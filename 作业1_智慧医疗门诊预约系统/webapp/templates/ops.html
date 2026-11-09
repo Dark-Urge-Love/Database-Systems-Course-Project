@@ -1,186 +1,242 @@
 {% extends "base.html" %}
-{% block title %}药房采购工作台 · {{ APP_TITLE }}{% endblock %}
+{% block title %}数据管理台 · {{ APP_TITLE }}{% endblock %}
 
 {% block content %}
 <div class="page-head">
-  <h1>药房采购工作台 <span class="tag">供应商报价处理全流程</span></h1>
-  <p>某医药供应商向药房提交了一份药品报价单。采购员从<b>登记报价</b>到<b>新药上架</b>、<b>调价</b>、<b>淘汰滞销药</b>，
-     最后<b>销毁临时报价表</b>——课程要求的六项基本数据库操作（建表 / 插入 / 修改 / 删除 / 删表 / 跨表 JOIN）
-     就落在这条业务链的每一环上。每张卡片会同时展示<b>业务动机</b>与<b>实际执行的 SQL</b>。</p>
+  <h1>数据管理台</h1>
+  <p>自己动手：建表 → 插入 → 修改 → 删除 → 删表，也可以直接维护药品目录和患者档案。每次操作都会记录实际执行的 SQL。</p>
 </div>
 
-<!-- 进度条 -->
-<div class="card">
-  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
-    <h2 style="margin:0">采购流程进度</h2>
-    <div class="btn-row" style="margin:0">
-      <button onclick="runAll()">▶ 自动演示整个流程</button>
-      <button class="ghost" onclick="resetAll()">清空结果</button>
-    </div>
-  </div>
-  <div class="flow-track" id="track">
-    {% for key, st in steps.items() %}
-      <div class="flow-node" id="node-{{ key }}">
-        <span class="flow-no">{{ loop.index }}</span>
-        <span class="flow-label">{{ st.title | truncate(14, true, '…') }}</span>
-      </div>
-      {% if not loop.last %}<div class="flow-arrow" id="arrow-{{ key }}">→</div>{% endif %}
-    {% endfor %}
-    <div class="flow-arrow">→</div>
-    <div class="flow-node" id="node-report"><span class="flow-no">📋</span><span class="flow-label">运营报表</span></div>
-  </div>
-  <div class="msg" id="flowMsg"></div>
-</div>
-
-<!-- 业务流程五步 -->
-{% for key, st in steps.items() %}
-<div class="card step-card" id="card-{{ key }}" style="margin-top:16px">
-  <div class="step-head">
-    <span class="step-no">第 {{ loop.index }} 步</span>
-    <div>
-      <h2 style="margin:0 0 4px">{{ st.title }}</h2>
-      <span class="tag blue">{{ st.tag }}</span>
-    </div>
-    <div style="margin-left:auto">
-      <button onclick="runOp('{{ key }}')">执行本步</button>
-      <span class="badge" id="badge-{{ key }}"></span>
-    </div>
-  </div>
-  <p class="biz-desc">{{ st.desc }}</p>
-  <div class="step-result" id="result-{{ key }}"><div class="center-empty">尚未执行</div></div>
-</div>
-{% endfor %}
-
-<!-- 运营报表（跨表 JOIN） -->
-<div class="card" style="margin-top:16px">
-  <h2>运营报表 <span class="tag">课程要求 ⑥ 跨数据表操作（JOIN）</span></h2>
-  <p>报价流程之外，管理层与客服还需要跨表汇总数据。以下两张报表分别连接 <b>5 张表</b>和 <b>7 张表</b>，
-     是「跨数据表操作」在真实业务中的样子。</p>
-</div>
-
-{% for key, rp in reports.items() %}
-<div class="card step-card" id="card-{{ key }}" style="margin-top:16px">
-  <div class="step-head">
-    <span class="step-no">报表 {{ loop.index }}</span>
-    <div>
-      <h2 style="margin:0 0 4px">{{ rp.title }}</h2>
-      <span class="tag blue">{{ rp.tag }}</span>
-    </div>
-    <div style="margin-left:auto">
-      {% if key == 'join2' %}
-        <label class="hint" style="margin-right:8px">患者编号
-          <input id="patient_id" type="number" value="1" min="1" style="width:80px" class="mono">
+<div class="grid grid-2-1">
+  <!-- ============ 左：建表 + 表清单 ============ -->
+  <div>
+    <div class="card">
+      <h2>创建数据表 <span class="tag">① CREATE TABLE</span></h2>
+      <div class="btn-row" style="margin-bottom:10px">
+        <label class="field" style="margin:0;flex:1"><span>表名</span>
+          <input type="text" id="ntName" placeholder="例如：supplier" class="mono">
         </label>
-      {% endif %}
-      <button onclick="runOp('{{ key }}')">生成报表</button>
-      <span class="badge" id="badge-{{ key }}"></span>
+      </div>
+      <div id="ntCols"></div>
+      <div class="btn-row" style="margin-top:8px">
+        <button class="ghost small" onclick="addColRow()">＋ 添加字段</button>
+        <button onclick="createTable()">创建表</button>
+      </div>
+      <div class="msg" id="ntMsg"></div>
+    </div>
+
+    <div class="card">
+      <h2>表清单 <button class="ghost small" onclick="loadTables()" style="margin-left:8px">刷新</button></h2>
+      <div id="tableList"><div class="center-empty">加载中…</div></div>
     </div>
   </div>
-  <p class="biz-desc">{{ rp.desc }}</p>
-  <div class="step-result" id="result-{{ key }}"><div class="center-empty">尚未执行</div></div>
-</div>
-{% endfor %}
 
-<div class="card" style="margin-top:16px">
-  <h2>流程说明</h2>
-  <div class="table-wrap" style="max-height:none">
-    <table>
-      <thead><tr><th style="width:250px">业务环节</th><th style="width:260px">对应课程要求</th><th>业务价值</th></tr></thead>
-      <tbody>
-        <tr><td>① 建立报价登记表</td><td>创建数据表 CREATE TABLE</td><td>报价单登记备案，采购留痕</td></tr>
-        <tr><td>② 录入报价、新药上架</td><td>插入数据 INSERT（含 INSERT…SELECT 跨表）</td><td>新药进入本院药品目录</td></tr>
-        <tr><td>③ 按报价调价</td><td>修改数据 UPDATE（UPDATE…JOIN 跨表）</td><td>目录内品种价格联动更新</td></tr>
-        <tr><td>④ 淘汰滞销药品</td><td>删除数据 DELETE（跨表条件 + 外键保护）</td><td>试销不达标 / 滞销零库存品种下架</td></tr>
-        <tr><td>⑤ 销毁临时报价表</td><td>删除数据表 DROP TABLE</td><td>临时数据生命周期结束，库不留垃圾</td></tr>
-        <tr><td>📋 运营报表</td><td>跨数据表操作 JOIN（5 表 / 7 表）</td><td>绩效审查与患者历史流水查询</td></tr>
-      </tbody>
-    </table>
+  <!-- ============ 右：数据浏览与编辑 ============ -->
+  <div>
+    <div class="card">
+      <h2 id="curTableName">数据浏览 <span class="tag">② 插入 ③ 修改 ④ 删除</span></h2>
+      <div class="btn-row" style="margin-bottom:10px">
+        <button onclick="showInsert()" id="btnInsert">插入数据</button>
+        <span class="hint" id="curTableHint">先在左侧选择一张表</span>
+      </div>
+      <div id="editor" style="display:none"></div>
+      <div id="dataGrid"><div class="center-empty">选择左侧的表查看数据</div></div>
+    </div>
+
+    <div class="card">
+      <h2>SQL 执行记录</h2>
+      <div id="sqlLog"><div class="center-empty">暂无记录</div></div>
+    </div>
   </div>
-  <p class="hint" style="margin-top:10px">
-    可反复演示：第 1 步会先清理旧报价表重新建；被淘汰的试销药品会在第 4 步自动清理，主业务数据不受影响。
-  </p>
+</div>
+
+<!-- ============ 跨表报表 ============ -->
+<div class="card" style="margin-top:16px">
+  <h2>跨数据表操作 <span class="tag">⑤ JOIN 报表</span></h2>
+  <div class="btn-row" style="align-items:flex-end">
+    <button onclick="runReport('doctor_revenue')">医生开药金额 Top10（5 表）</button>
+    <button class="ghost" onclick="runReport('patient_flow')">患者就诊流水（7 表）</button>
+    <label class="field" style="margin:0;width:110px"><span>患者编号</span>
+      <input type="number" id="patientId" value="1" min="1" class="mono">
+    </label>
+  </div>
+  <div class="msg" id="rpMsg"></div>
+  <div id="rpResult"></div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-const STEP_KEYS = [{% for key in steps %}'{{ key }}'{% if not loop.last %},{% endif %}{% endfor %}];
 const $ = id => document.getElementById(id);
+let curTable = null, curCols = [], curPK = null, editingPK = null;
 
-function hideFlowMsg() { $('flowMsg').className = 'msg'; }
+const TYPES = ["INT","TINYINT","DECIMAL(10,2)","VARCHAR(50)","VARCHAR(100)","VARCHAR(255)","TEXT","DATE","DATETIME"];
 
-function renderInto(key, r) {
-  const box = $('result-' + key);
-  if (!r.ok) {
-    let html = '<div class="msg bad show">' + esc(r.error) + '</div>';
-    (r.steps || []).forEach(s => { html += highlightSQL(s.sql); });
-    box.innerHTML = html;
-    return false;
-  }
+/* ================= 建表 ================= */
+function addColRow(name, type, notnull) {
+  const box = $("ntCols");
+  const row = document.createElement("div");
+  row.className = "btn-row";
+  row.style.marginBottom = "6px";
+  row.innerHTML =
+    '<input type="text" class="colName mono" placeholder="字段名" value="' + (name||'') + '" style="width:150px">' +
+    '<select class="colType">' + TYPES.map(t => '<option ' + (t===(type||'VARCHAR(50)')?'selected':'') + '>' + t + '</option>').join('') + '</select>' +
+    '<label class="checkline" style="margin:0"><input type="checkbox" class="colNN" ' + (notnull?'checked':'') + '>必填</label>' +
+    '<button class="ghost small" onclick="this.parentElement.remove()">删</button>';
+  box.appendChild(row);
+}
+addColRow("drug_name", "VARCHAR(100)", true);
+addColRow("price", "DECIMAL(10,2)", false);
+
+async function createTable() {
+  const name = $("ntName").value.trim();
+  const cols = [...$("ntCols").children].map(r => ({
+    name: r.querySelector(".colName").value.trim(),
+    type: r.querySelector(".colType").value,
+    notnull: r.querySelector(".colNN").checked
+  }));
+  const r = await postJSON('/api/crud/create_table', {name: name, columns: cols});
+  logSQL(r.ok, r.data ? r.data.sql : null, r.error);
+  showMsg($('ntMsg'), r.ok ? r.data.message : r.error, r.ok ? 'ok' : 'bad');
+  if (r.ok) { loadTables(); selectTable(name); }
+}
+
+/* ================= 表清单 ================= */
+async function loadTables() {
+  const r = await api('/api/crud/tables');
+  if (!r.ok) { $('tableList').innerHTML = '<div class="center-empty">' + esc(r.error) + '</div>'; return; }
   const d = r.data;
-  let html = '';
-  (d.steps || []).forEach(s => {
-    html += '<div class="hint">受影响 ' + s.rowcount + ' 行，耗时 ' + s.elapsed_ms + ' ms</div>' + highlightSQL(s.sql);
+  let h = '<div class="hint" style="margin:2px 0 6px">业务表（可直接维护数据）</div>';
+  d.business.forEach(t => { h += tableItem(t.name, t.cn, false); });
+  h += '<div class="hint" style="margin:10px 0 6px">我创建的表</div>';
+  h += d.mine.length ? d.mine.map(t => tableItem(t, '', true)).join('')
+                     : '<div class="hint" style="padding:4px 0">还没有自建表，用上方表单创建一张</div>';
+  $('tableList').innerHTML = h;
+}
+function tableItem(name, cn, mine) {
+  return '<div class="table-item" data-t="' + esc(name) + '" onclick="selectTable(\'' + esc(name) + '\')">' +
+         '<b class="mono">' + esc(name) + '</b>' + (cn ? ' <span class="hint">' + esc(cn) + '</span>' : '') +
+         (mine ? '<button class="warn small" style="margin-left:auto" onclick="event.stopPropagation();dropTable(\'' + esc(name) + '\')">删表</button>' : '') +
+         '</div>';
+}
+
+async function dropTable(name) {
+  if (!confirm('确定要删除表 ' + name + ' 吗？（DROP TABLE，表内数据一并删除）')) return;
+  const r = await postJSON('/api/crud/drop_table', {table: name});
+  logSQL(r.ok, r.data ? r.data.sql : null, r.error);
+  if (!r.ok) { alert(r.error); return; }
+  if (curTable === name) {
+    curTable = null;
+    $('dataGrid').innerHTML = '<div class="center-empty">选择左侧的表查看数据</div>';
+  }
+  loadTables();
+}
+
+/* ================= 数据浏览 ================= */
+async function selectTable(name) {
+  curTable = name;
+  document.querySelectorAll('.table-item').forEach(el => el.classList.toggle('active', el.dataset.t === name));
+  const r = await api('/api/crud/table?name=' + encodeURIComponent(name));
+  if (!r.ok) { $('dataGrid').innerHTML = '<div class="center-empty">' + esc(r.error) + '</div>'; return; }
+  curCols = r.data.columns; curPK = r.data.pk;
+  $('curTableName').innerHTML = '数据浏览：<span class="mono">' + esc(name) + '</span>';
+  $('curTableHint').textContent = '主键：' + curPK + ' · 显示最近 50 行';
+  renderRows(r.data.rows);
+}
+
+function renderRows(rows) {
+  if (!rows || !rows.length) {
+    $('dataGrid').innerHTML = '<div class="center-empty">表内暂无数据，点「插入数据」写入第一行</div>';
+    return;
+  }
+  const cols = Object.keys(rows[0]);
+  let h = '<div class="table-wrap" style="max-height:380px"><table><thead><tr>';
+  cols.forEach(c => h += '<th class="mono">' + esc(c) + '</th>');
+  h += '<th style="width:120px">操作</th></tr></thead><tbody>';
+  rows.forEach(row => {
+    const pkv = JSON.stringify(row[curPK]);
+    h += '<tr>' + cols.map(c => '<td>' + esc(row[c]) + '</td>').join('') +
+         '<td><button class="ghost small" onclick="showEdit(' + pkv + ')">改</button> ' +
+         '<button class="warn small" onclick="delRow(' + pkv + ')">删</button></td></tr>';
   });
-  if (d.rows && d.rows.length) {
-    html += '<div class="spacer"></div>' + renderTable(d.columns, d.rows, 50);
-  } else if (d.columns && d.columns.length) {
-    html += '<div class="spacer"></div><div class="center-empty">结果集为空</div>';
-  }
-  box.innerHTML = html;
-  return true;
+  $('dataGrid').innerHTML = h + '</tbody></table></div>';
 }
 
-function markDone(key, ok) {
-  const node = $('node-' + key);
-  const badge = $('badge-' + key);
-  if (node) {
-    node.classList.remove('done', 'fail');
-    node.classList.add(ok ? 'done' : 'fail');
-  }
-  if (badge) {
-    badge.textContent = ok ? '✓ 已完成' : '✗ 失败';
-    badge.className = 'badge ' + (ok ? 'ok' : 'bad');
-  }
-}
-
-async function runOp(key, silent) {
-  const pid = key === 'join2' ? (parseInt($('patient_id')?.value) || 1) : 1;
-  if (!silent) showMsg($('flowMsg'), '正在执行…', 'info');
-  const r = await postJSON('/api/ops', {op: key, patient_id: pid});
-  const ok = renderInto(key, r);
-  markDone(key, ok);
-  if (!silent) {
-    if (ok) showMsg($('flowMsg'), '「' + key + '」执行成功，耗时 ' + r.data.elapsed_ms + ' ms', 'ok');
-    else showMsg($('flowMsg'), '执行失败：' + r.error, 'bad');
-  }
-  return ok;
-}
-
-async function runAll() {
-  hideFlowMsg();
-  for (const key of STEP_KEYS) {
-    showMsg($('flowMsg'), '正在执行：' + key + ' …', 'info');
-    const ok = await runOp(key, true);
-    if (!ok) {
-      showMsg($('flowMsg'), '流程在「' + key + '」一步中断，详见对应卡片内的错误详情', 'bad');
-      return;
-    }
-  }
-  await runOp('join', true);
-  showMsg($('flowMsg'), '整个采购流程演示完成！可下拉查看每一步的 SQL 与结果。', 'ok');
-}
-
-function resetAll() {
-  STEP_KEYS.concat(['join', 'join2']).forEach(key => {
-    const box = $('result-' + key);
-    if (box) box.innerHTML = '<div class="center-empty">尚未执行</div>';
-    const node = $('node-' + key);
-    if (node) node.classList.remove('done', 'fail');
-    const badge = $('badge-' + key);
-    if (badge) { badge.textContent = ''; badge.className = 'badge'; }
+/* ================= 插入 / 修改表单 ================= */
+function buildForm(values) {
+  let h = '<div class="card" style="background:var(--bg);margin-bottom:10px">';
+  curCols.forEach(c => {
+    if (c.auto) return;
+    const v = values ? (values[c.name] === null ? '' : values[c.name]) : '';
+    h += '<label class="field" style="display:inline-block;width:200px;margin:4px 10px 4px 0">' +
+         '<span>' + esc(c.name) + ' <i class="hint">' + esc(c.type) + (c.nullable ? '' : ' · 必填') + '</i></span>' +
+         '<input class="ef" data-col="' + esc(c.name) + '" value="' + esc(v) + '"></label>';
   });
-  hideFlowMsg();
+  h += '<div class="btn-row" style="margin-top:8px">' +
+       '<button onclick="saveEditor()">' + (editingPK !== null ? '保存修改' : '插入这行数据') + '</button>' +
+       '<button class="ghost" onclick="hideEditor()">取消</button></div></div>';
+  return h;
 }
+
+function showInsert() {
+  if (!curTable) { alert('请先选择一张表'); return; }
+  editingPK = null;
+  $('editor').innerHTML = buildForm(null);
+  $('editor').style.display = '';
+}
+
+async function showEdit(pkv) {
+  const r = await api('/api/crud/table?name=' + encodeURIComponent(curTable));
+  if (!r.ok) { alert(r.error); return; }
+  const row = (r.data.rows || []).find(x => String(x[curPK]) === String(pkv));
+  if (!row) { alert('未找到该行'); return; }
+  editingPK = pkv;
+  $('editor').innerHTML = buildForm(row);
+  $('editor').style.display = '';
+}
+
+function hideEditor() { $('editor').style.display = 'none'; }
+
+async function saveEditor() {
+  const values = {};
+  document.querySelectorAll('#editor .ef').forEach(inp => { values[inp.dataset.col] = inp.value; });
+  const url = editingPK !== null ? '/api/crud/update' : '/api/crud/insert';
+  const body = editingPK !== null
+    ? {table: curTable, values: values, pk_value: editingPK}
+    : {table: curTable, values: values};
+  const r = await postJSON(url, body);
+  logSQL(r.ok, r.data ? r.data.sql : null, r.error);
+  if (r.ok) { hideEditor(); selectTable(curTable); }
+  else alert(r.error);
+}
+
+/* ================= 删除 ================= */
+async function delRow(pkv) {
+  if (!confirm('确定删除 ' + curPK + ' = ' + pkv + ' 这一行吗？')) return;
+  const r = await postJSON('/api/crud/delete', {table: curTable, pk_value: pkv});
+  logSQL(r.ok, r.data ? r.data.sql : null, r.error);
+  if (r.ok) selectTable(curTable); else alert(r.error);
+}
+
+/* ================= 跨表报表 ================= */
+async function runReport(name) {
+  const r = await postJSON('/api/report', {name: name, patient_id: +($('patientId').value || 1)});
+  showMsg($('rpMsg'), r.ok ? '查询完成，返回 ' + r.data.count + ' 行' : r.error, r.ok ? 'ok' : 'bad');
+  $('rpResult').innerHTML = r.ok ? renderTable(r.data.columns, r.data.rows, 30) : '';
+}
+
+/* ================= SQL 执行记录 ================= */
+function logSQL(ok, sql, fallback) {
+  const box = $('sqlLog');
+  if (box.querySelector('.center-empty')) box.innerHTML = '';
+  const row = document.createElement('div');
+  row.style.cssText = 'padding:6px 0;border-bottom:1px dashed var(--line);font-size:12.5px';
+  row.innerHTML = '<span class="tag ' + (ok ? 'green' : 'red') + '">' + (ok ? '成功' : '失败') + '</span> ' +
+                  '<span class="mono hint">' + esc(sql || fallback) + '</span>';
+  box.prepend(row);
+  while (box.children.length > 12) box.removeChild(box.lastChild);
+}
+
+loadTables();
 </script>
 {% endblock %}
