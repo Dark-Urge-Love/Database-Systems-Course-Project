@@ -66,6 +66,7 @@ a:hover { text-decoration: underline; text-underline-offset: 3px; }
 /* ---------------- 顶栏 ---------------- */
 .topbar {
   background: rgba(255, 255, 255, .94);
+  border-top: 3px solid var(--green);
   border-bottom: 1px solid var(--rule);
   position: sticky; top: 0; z-index: 50;
   backdrop-filter: saturate(180%) blur(10px);
@@ -75,30 +76,38 @@ a:hover { text-decoration: underline; text-underline-offset: 3px; }
   display: flex; align-items: center; gap: 46px; height: 64px;
 }
 .brand {
+  display: inline-flex; align-items: center; gap: 7px;
   font-size: 15.5px; font-weight: 700; letter-spacing: -.01em;
   color: var(--ink); white-space: nowrap;
 }
-.brand .logo { display: none; }
+a.brand:hover { text-decoration: none; }
+.brand .logo {
+  display: inline-block; color: var(--green);
+  font-size: 16px; font-weight: 700; line-height: 1;
+  transform: translateY(-1px);
+}
 
-nav.topnav { display: flex; gap: 30px; flex: 1; height: 64px; }
+nav.topnav { position: relative; display: flex; gap: 30px; flex: 1; height: 64px; }
 nav.topnav a {
   display: flex; align-items: center; position: relative;
   padding: 0; border: 0; color: var(--ink-3); font-size: 14.5px;
 }
 nav.topnav a:hover { color: var(--ink); text-decoration: none; }
-nav.topnav a.active { color: var(--ink); font-weight: 600; }
+nav.topnav a.active { color: var(--green); font-weight: 650; }
+/* 没有脚本时用静态下划线兜底，脚本接管后交给滑动指示条 */
 nav.topnav a.active::after {
   content: ""; position: absolute; left: 0; right: 0; bottom: -1px;
-  height: 2px; background: var(--ink);
+  height: 2px; background: var(--green);
 }
+nav.topnav.has-ind a.active::after { display: none; }
 
-.conn-chip {
-  display: flex; align-items: center; gap: 8px;
-  font-size: 12.5px; color: var(--ink-3); white-space: nowrap;
+.nav-ind {
+  position: absolute; left: 0; bottom: -1px; width: 0; height: 2px;
+  background: var(--green); opacity: 0; pointer-events: none;
+  transition: left .36s cubic-bezier(.34, .05, .2, 1),
+              width .36s cubic-bezier(.34, .05, .2, 1);
 }
-.conn-chip b { color: var(--ink-2); font-weight: 500; }
-.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex: none; }
-.dot.bad { background: var(--red); }
+.nav-ind.on { opacity: 1; }
 
 /* ---------------- 版心 ---------------- */
 .wrap { max-width: 1120px; margin: 0 auto; padding: 58px 32px 110px; }
@@ -530,7 +539,6 @@ button.close:hover { background: #f4f4f5; color: var(--ink); opacity: 1; }
   nav.topnav { height: auto; gap: 22px; }
   nav.topnav a { padding: 4px 0; }
   nav.topnav a.active::after { bottom: -3px; }
-  .conn-chip { display: none; }
   .wrap { padding: 40px 20px 80px; }
   .page-head { margin-bottom: 42px; }
   .page-head h1 { font-size: 31px; letter-spacing: -.03em; }

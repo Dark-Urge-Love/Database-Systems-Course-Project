@@ -10,22 +10,15 @@
 
 <div class="topbar">
   <div class="topbar-inner">
-    <div class="brand"><span class="logo">＋</span>{{ APP_TITLE }}</div>
-    <nav class="topnav">
+    <a class="brand" href="{{ url_for('main.dashboard') }}"><span class="logo">＋</span>{{ APP_TITLE }}</a>
+    <nav class="topnav" id="topnav">
       <a href="{{ url_for('main.dashboard') }}"  class="{{ 'active' if request.endpoint=='main.dashboard' }}">数据概览</a>
       <a href="{{ url_for('main.ops_page') }}"     class="{{ 'active' if request.endpoint=='main.ops_page' }}">药房业务</a>
       <a href="{{ url_for('main.register_page') }}" class="{{ 'active' if request.endpoint=='main.register_page' }}">挂号</a>
       <a href="{{ url_for('main.perf_page') }}"    class="{{ 'active' if request.endpoint=='main.perf_page' }}">索引对比</a>
     </nav>
-    <div class="conn-chip" title="浏览器→Flask(本机)→MySQL(Linux服务器)，数据实际存放在下面这台服务器上">
-      <span class="dot {{ '' if conn.ok else 'bad' }}"></span>
-      {% if conn.ok %}
-        数据库服务器 <b>{{ conn.host }}:{{ conn.port }}</b> · {{ conn.hostname }} · MySQL {{ conn.version.split('-')[0] }}
-      {% else %}
-        数据库未连接 <b>{{ conn.host }}:{{ conn.port }}</b>
-      {% endif %}
-    </div>
   </div>
+  <span class="nav-ind" aria-hidden="true"></span>
 </div>
 
 <div class="wrap">
@@ -92,6 +85,79 @@ function highlightSQL(sql) {
   });
   return '<pre class="sql">' + out + '</pre>';
 }
+/* ---------- 顶栏导航：绿色指示条在菜单之间滑动 ---------- */
+(function () {
+  const bar = document.querySelector('.topbar');
+  const nav = document.getElementById('topnav');
+  if (!bar || !nav) return;
+  const ind = bar.querySelector('.nav-ind');
+  const link = nav.querySelector('a.active');
+  if (!ind || !link) return;
+
+  const KEY = 'navIndicator';
+  let prev = null;
+  try { prev = JSON.parse(sessionStorage.getItem(KEY) || 'null'); } catch (e) { prev = null; }
+
+  // 指示条挂在顶栏上，按「菜单相对顶栏」的位置摆放，
+  // 这样窄屏换行后依然能贴住顶栏底边
+  function geometry() {
+    const b = bar.getBoundingClientRect();
+    const r = link.getBoundingClientRect();
+    return {l: Math.round(r.left - b.left), w: Math.round(r.width)};
+  }
+  function put(g) { ind.style.left = g.l + 'px'; ind.style.width = g.w + 'px'; }
+
+  let last = {l: -1, w: -1};
+  // 静默贴位：不带动画（用于字体、窗口尺寸变化后的校正）
+  function sync() {
+    const g = geometry();
+    if (g.l === last.l && g.w === last.w) return;
+    last = g;
+    ind.style.transition = 'none';
+    put(g);
+    requestAnimationFrame(function () { ind.style.transition = ''; });
+    try { sessionStorage.setItem(KEY, JSON.stringify(g)); } catch (e) {}
+  }
+
+  // 等字体落定再落位：字体替换会让整排菜单平移，先摆再滑会偏
+  let started = false;
+  function start() {
+    if (started) return;
+    started = true;
+    const now = geometry();
+    last = now;
+    if (prev && typeof prev.l === 'number' && (prev.l !== now.l || prev.w !== now.w)) {
+      // 先把指示条摆在上一个页面的位置，再滑到当前位置
+      ind.style.transition = 'none';
+      put(prev);
+      void ind.offsetWidth;
+      ind.style.transition = '';
+      ind.classList.add('on');
+      requestAnimationFrame(function () { put(now); });
+    } else {
+      put(now);
+      ind.classList.add('on');
+    }
+    nav.classList.add('has-ind');
+    try { sessionStorage.setItem(KEY, JSON.stringify(now)); } catch (e) {}
+  }
+
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(function () { requestAnimationFrame(start); });
+  }
+  window.addEventListener('load', function () { requestAnimationFrame(start); });
+  setTimeout(start, 800);                       // 兜底：字体接口不可用时
+
+  // 仍有一次字体/排版微调的可能，前 1.2 秒内悄悄跟一次
+  let ticks = 0;
+  const timer = setInterval(function () {
+    if (started) sync();
+    if (++ticks >= 15) clearInterval(timer);
+  }, 80);
+  window.addEventListener('resize', sync);
+  // 字体替换会改变品牌与菜单的宽度分配，导航尺寸一变就跟着贴位
+  if (window.ResizeObserver) new ResizeObserver(function () { if (started) sync(); }).observe(nav);
+})();
 </script>
 {% block scripts %}{% endblock %}
 </body>
