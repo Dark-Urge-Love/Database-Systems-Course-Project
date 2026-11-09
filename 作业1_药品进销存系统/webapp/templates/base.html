@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}{{ APP_TITLE }}{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="{{ url_for('main.dashboard') }}"><span class="logo">＋</span>{{ APP_TITLE }}</a>
+    <nav class="topnav" id="topnav">
+      <a href="{{ url_for('main.dashboard') }}"  class="{{ 'active' if request.endpoint=='main.dashboard' }}">数据概览</a>
+      <a href="{{ url_for('main.ops_page') }}"   class="{{ 'active' if request.endpoint=='main.ops_page' }}">进销存业务</a>
+      <a href="{{ url_for('main.perf_page') }}"  class="{{ 'active' if request.endpoint=='main.perf_page' }}">索引对比</a>
+    </nav>
+  </div>
+  <span class="nav-ind" aria-hidden="true"></span>
+</div>
+
+<div class="wrap">
+  {% block content %}{% endblock %}
+</div>
+
+<script>
+/* ---------- 通用请求封装 ---------- */
+async function api(url, options) {
+  const opt = Object.assign({headers: {'Content-Type': 'application/json'}}, options || {});
+  const resp = await fetch(url, opt);
+  return await resp.json();
+}
+function postJSON(url, data) {
+  return api(url, {method: 'POST', body: JSON.stringify(data || {})});
+}
+function showMsg(el, text, kind) {
+  el.className = 'msg ' + (kind || 'info') + ' show';
+  el.textContent = text;
+}
+function esc(s) {
+  return String(s === null || s === undefined ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+/* ---------- 渲染通用结果表格 ---------- */
+function renderTable(columns, rows, maxRows) {
+  if (!rows || !rows.length) return '<div class="center-empty">没有查询到数据</div>';
+  const cols = columns && columns.length ? columns : Object.keys(rows[0]);
+  // 列数少时用固定布局，列宽均分，避免出现大段空白
+  const tcls = 'data-table' + (cols.length <= 6 ? ' fixed' : '');
+  let html = '<div class="table-wrap"><table class="' + tcls + '"><thead><tr>';
+  cols.forEach(c => {
+    const isNum = rows.length && typeof rows[0][c] === 'number';
+    html += '<th class="' + (isNum ? 'num' : '') + '">' + esc(c) + '</th>';
+  });
+  html += '</tr></thead><tbody>';
+  const limit = Math.min(rows.length, maxRows || 200);
+  for (let i = 0; i < limit; i++) {
+    html += '<tr>';
+    cols.forEach(c => {
+      const v = rows[i][c];
+      const isNum = typeof v === 'number';
+      html += '<td class="' + (isNum ? 'num' : '') + '">' + esc(v) + '</td>';
+    });
+    html += '</tr>';
+  }
+  html += '</tbody></table></div>';
+  if (rows.length > limit) html += '<div class="hint" style="margin-top:8px">共 ' + rows.length + ' 行，仅显示前 ' + limit + ' 行</div>';
+  else html += '<div class="hint" style="margin-top:8px">共 ' + rows.length + ' 行</div>';
+  return html;
+}
+/* ---------- SQL 高亮 ---------- */
+function highlightSQL(sql) {
+  const kws = ['SELECT','FROM','WHERE','INSERT INTO','INSERT','VALUES','UPDATE','SET','DELETE',
+               'CREATE TABLE','CREATE INDEX','DROP TABLE','DROP INDEX','DROP DATABASE','CREATE DATABASE',
+               'ALTER TABLE','START TRANSACTION','COMMIT','ROLLBACK','JOIN','LEFT JOIN','INNER JOIN',
+               'GROUP BY','ORDER BY','LIMIT','FOR UPDATE','AND','OR','NOT NULL','PRIMARY KEY','AUTO_INCREMENT',
+               'ENGINE','DEFAULT','CHARSET','IF NOT EXISTS','IF EXISTS','AS','ON','COUNT','SUM','AVG','ROUND',
+               'IGNORE INDEX','USE INDEX','SHOW','EXPLAIN','USE','DESC'];
+  let out = esc(sql);
+  kws.sort((a, b) => b.length - a.length).forEach(k => {
+    out = out.replace(new RegExp('\\b' + k.replace(/ /g, '\\s+') + '\\b', 'gi'),
+                      m => '<span class="kw">' + m.toUpperCase() + '</span>');
+  });
+  return '<pre class="sql">' + out + '</pre>';
+}
+/* ---------- 顶栏导航：绿色指示条在菜单之间滑动 ---------- */
+(function () {
+  const bar = document.querySelector('.topbar');
+  const nav = document.getElementById('topnav');
+  if (!bar || !nav) return;
+  const ind = bar.querySelector('.nav-ind');
+  const link = nav.querySelector('a.active');
+  if (!ind || !link) return;
+
+  const KEY = 'navIndicator';
+  let prev = null;
+  try { prev = JSON.parse(sessionStorage.getItem(KEY) || 'null'); } catch (e) { prev = null; }
+
+  // 指示条挂在顶栏上，按「菜单相对顶栏」的位置摆放，
+  // 这样窄屏换行后依然能贴住顶栏底边
+  function geometry() {
+    const b = bar.getBoundingClientRect();
+    const r = link.getBoundingClientRect();
+    return {l: Math.round(r.left - b.left), w: Math.round(r.width)};
+  }
+  function put(g) { ind.style.left = g.l + 'px'; ind.style.width = g.w + 'px'; }
+
+  let last = {l: -1, w: -1};
+  // 静默贴位：不带动画（用于字体、窗口尺寸变化后的校正）
+  function sync() {
+    const g = geometry();
+    if (g.l === last.l && g.w === last.w) return;
+    last = g;
+    ind.style.transition = 'none';
+    put(g);
+    requestAnimationFrame(function () { ind.style.transition = ''; });
+    try { sessionStorage.setItem(KEY, JSON.stringify(g)); } catch (e) {}
+  }
+
+  // 等字体落定再落位：字体替换会让整排菜单平移，先摆再滑会偏
+  let started = false;
+  function start() {
+    if (started) return;
+    started = true;
+    const now = geometry();
+    last = now;
+    if (prev && typeof prev.l === 'number' && (prev.l !== now.l || prev.w !== now.w)) {
+      // 先把指示条摆在上一个页面的位置，再滑到当前位置
+      ind.style.transition = 'none';
+      put(prev);
+      void ind.offsetWidth;
+      ind.style.transition = '';
+      ind.classList.add('on');
+      requestAnimationFrame(function () { put(now); });
+    } else {
+      put(now);
+      ind.classList.add('on');
+    }
+    nav.classList.add('has-ind');
+    try { sessionStorage.setItem(KEY, JSON.stringify(now)); } catch (e) {}
+  }
+
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(function () { requestAnimationFrame(start); });
+  }
+  window.addEventListener('load', function () { requestAnimationFrame(start); });
+  setTimeout(start, 800);                       // 兜底：字体接口不可用时
+
+  // 仍有一次字体/排版微调的可能，前 1.2 秒内悄悄跟一次
+  let ticks = 0;
+  const timer = setInterval(function () {
+    if (started) sync();
+    if (++ticks >= 15) clearInterval(timer);
+  }, 80);
+  window.addEventListener('resize', sync);
+  // 字体替换会改变品牌与菜单的宽度分配，导航尺寸一变就跟着贴位
+  if (window.ResizeObserver) new ResizeObserver(function () { if (started) sync(); }).observe(nav);
+})();
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

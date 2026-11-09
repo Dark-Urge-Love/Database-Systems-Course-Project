@@ -1,0 +1,815 @@
+{% extends "base.html" %}
+{% block title %}进销存业务 · {{ APP_TITLE }}{% endblock %}
+
+{% block content %}
+<div class="page-head c-violet">
+  <h1>进销存业务</h1>
+  <p>药品目录、采购入库、销售出库、库存批次、业务表单、运营报表　—　课程要求的六项基本操作都在这里完成，每次操作都会显示实际执行的 SQL。</p>
+</div>
+
+<div class="tabs">
+  <button class="tab active" data-tab="drug" onclick="switchTab('drug', this)">药品目录</button>
+  <button class="tab" data-tab="io" onclick="switchTab('io', this)">采购入库 · 销售出库</button>
+  <button class="tab" data-tab="form" onclick="switchTab('form', this)">业务表单</button>
+  <button class="tab" data-tab="report" onclick="switchTab('report', this)">运营报表</button>
+  <button class="tab" data-tab="concurrency" onclick="switchTab('concurrency', this)">并发出库</button>
+</div>
+
+<!-- ==================== 药品目录 ==================== -->
+<section id="tab-drug">
+  <div class="block c-blue">
+    <div class="block-head">
+      <span class="no">01</span>
+      <h2>药品目录</h2>
+      <span class="note">插入 · 修改 · 删除 · 按药品汇总库存</span>
+    </div>
+    <div class="toolbar">
+      <input type="text" id="q" placeholder="搜索药品名称 / 编码 / 生产厂家" oninput="onSearch()">
+      <button class="ghost" onclick="loadDrugs()">刷新</button>
+      <button onclick="openDrugForm()">新增药品</button>
+    </div>
+    <div class="msg" id="drugMsg"></div>
+    <div id="drugTable"><div class="center-empty">加载中…</div></div>
+  </div>
+</section>
+
+<!-- ==================== 采购入库 / 销售出库 ==================== -->
+<section id="tab-io" style="display:none">
+  <div class="block c-green">
+    <div class="block-head">
+      <span class="no">02</span>
+      <h2>采购入库</h2>
+      <span class="note">一个事务写 6 张表：采购单 → 明细 → 批次 → 库存 → 流水</span>
+    </div>
+    <p class="hint" style="margin:-4px 0 16px">
+      库房到货时登记：选供应商与入库仓库，填药品、数量、批号和有效期。提交后系统同时生成采购单、
+      采购明细和入库批次，增加库存结存，并留下一条「采购入库」流水；任何一步失败都会整体回滚。
+    </p>
+    <div class="io-form">
+      <label class="field"><span>供应商</span><select id="pSupplier"></select></label>
+      <label class="field"><span>入库仓库</span><select id="pWarehouse"></select></label>
+      <label class="field"><span>采购员</span><select id="pBuyer"></select></label>
+      <label class="field pick"><span>药品 <em>输入关键字筛选</em></span>
+        <input id="pDrugQ" type="text" placeholder="药名 / 规格" oninput="renderDrugOpts('pDrug', this.value)">
+        <select id="pDrug" onchange="fillPurchasePrice()"></select>
+      </label>
+      <label class="field"><span>采购数量</span><input id="pQty" type="number" min="1" value="100"></label>
+      <label class="field"><span>采购单价（元）</span><input id="pPrice" type="number" step="0.01" min="0" value="10.00"></label>
+      <label class="field"><span>批号</span><input id="pBatch" type="text" placeholder="留空自动生成"></label>
+      <label class="field"><span>生产日期</span><input id="pProd" type="date"></label>
+      <label class="field"><span>有效期至</span><input id="pExpiry" type="date"></label>
+    </div>
+    <div class="toolbar" style="margin-top:14px">
+      <button onclick="submitPurchase()" id="btnPurchase">确认入库</button>
+      <span class="hint" style="margin-left:4px">提交后可在下方看到这张采购单</span>
+    </div>
+    <div class="msg" id="purchaseMsg"></div>
+    <div id="purchaseTable"><div class="center-empty">加载中…</div></div>
+  </div>
+
+  <div class="block c-amber">
+    <div class="block-head">
+      <span class="no">03</span>
+      <h2>销售出库</h2>
+      <span class="note">行锁校验 + 批次近效期先出 + 库存扣减 + 流水</span>
+    </div>
+    <p class="hint" style="margin:-4px 0 16px">
+      客户提货时登记：系统先锁住该药品在该仓库的库存行，校验余额够不够，再从最早到期的批次开始扣减，
+      最后写出库单、销售明细和一条「销售出库」流水。库存不足时当场拒绝，不会出现负库存。
+    </p>
+    <div class="io-form">
+      <label class="field"><span>出库仓库</span><select id="sWarehouse"></select></label>
+      <label class="field"><span>销售员</span><select id="sSeller"></select></label>
+      <label class="field"><span>客户名称</span><input id="sCustomer" type="text" placeholder="如 南京同仁堂大药房"></label>
+      <label class="field"><span>客户类型</span>
+        <select id="sType">
+          <option>连锁药店</option><option>医院</option><option>诊所</option><option>个人</option>
+        </select>
+      </label>
+      <label class="field pick"><span>药品 <em>输入关键字筛选</em></span>
+        <input id="sDrugQ" type="text" placeholder="药名 / 规格" oninput="renderDrugOpts('sDrug', this.value, true)">
+        <select id="sDrug"></select>
+      </label>
+      <label class="field"><span>出库数量</span><input id="sQty" type="number" min="1" value="10"></label>
+    </div>
+    <div class="toolbar" style="margin-top:14px">
+      <button onclick="submitSale()" id="btnSale">确认出库</button>
+      <span class="hint" style="margin-left:4px">库存不足时会被业务规则拦下</span>
+    </div>
+    <div class="msg" id="saleMsg"></div>
+    <div id="saleTable"><div class="center-empty">加载中…</div></div>
+  </div>
+
+  <div class="block c-slate">
+    <div class="block-head">
+      <span class="no">04</span>
+      <h2>库存台账</h2>
+      <span class="note">药品 × 仓库结存，含在库批次数</span>
+    </div>
+    <div id="stockTable"><div class="center-empty">加载中…</div></div>
+  </div>
+</section>
+
+<!-- ==================== 业务表单 ==================== -->
+<section id="tab-form" style="display:none">
+  <div class="grid grid-sidebar">
+    <div class="block c-violet">
+      <div class="block-head">
+        <span class="no">05</span>
+        <h2>业务表单</h2>
+        <span class="note">建表 · 删表</span>
+      </div>
+      <button class="btn-line block-level" onclick="openFormDialog()">＋ 新建业务表单</button>
+      <div id="formList" style="margin-top:10px"><div class="center-empty">加载中…</div></div>
+    </div>
+    <div class="block c-teal">
+      <div class="block-head">
+        <span class="no">06</span>
+        <h2>表单记录</h2>
+        <span class="note">按药品登记，联动药品目录</span>
+      </div>
+      <div id="formDetail"><div class="center-empty mid">新建表单后，在这里按药品登记</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 运营报表 ==================== -->
+<section id="tab-report" style="display:none">
+  <div class="block c-teal">
+    <div class="block-head">
+      <span class="no">07</span>
+      <h2>供应商供货排行</h2>
+      <span class="note">5 表 JOIN · 采购明细 → 采购单 → 供应商 → 仓库 → 员工</span>
+    </div>
+    <div id="reportA"><div class="center-empty">加载中…</div></div>
+  </div>
+
+  <div class="block c-blue">
+    <div class="block-head">
+      <span class="no">08</span>
+      <h2>药品销售排行</h2>
+      <span class="note">5 表 JOIN · 销售明细 → 销售单 → 药品 → 分类 → 仓库</span>
+    </div>
+    <div id="reportB"><div class="center-empty">加载中…</div></div>
+  </div>
+
+  <div class="block c-amber">
+    <div class="block-head">
+      <span class="no">09</span>
+      <h2>效期预警批次溯源</h2>
+      <span class="note">6 表 JOIN · 批次 → 药品 → 仓库 → 采购明细 → 采购单 → 供应商</span>
+    </div>
+    <div id="reportC"><div class="center-empty">加载中…</div></div>
+  </div>
+
+  <div class="block c-green">
+    <div class="block-head">
+      <span class="no">10</span>
+      <h2>单药品出入库全链路</h2>
+      <div class="btn-row" style="margin-left:auto">
+        <span class="hint">7 表 JOIN · 流水 → 药品 → 仓库 → 员工 → 销售单 / 采购单 → 供应商</span>
+      </div>
+    </div>
+    <div class="io-form" style="margin-bottom:14px;grid-template-columns:1fr auto">
+      <label class="field pick"><span>选择药品 <em>输入关键字筛选</em></span>
+        <input id="tDrugQ" type="text" placeholder="药名 / 规格" oninput="renderDrugOpts('tDrug', this.value)">
+        <select id="tDrug" onchange="loadReport('drug_trace')"></select>
+      </label>
+      <div class="field" style="justify-content:flex-end"><span>&nbsp;</span>
+        <button class="ghost" onclick="loadReport('drug_trace')">查询流水</button></div>
+    </div>
+    <div id="reportD"></div>
+  </div>
+</section>
+
+<!-- ==================== 并发出库 ==================== -->
+<section id="tab-concurrency" style="display:none">
+  <div class="block c-amber">
+    <div class="block-head">
+      <span class="no">11</span>
+      <h2>并发出库</h2>
+      <span class="note">多客户端同时访问 · 逐次记录响应耗时</span>
+    </div>
+    <p class="hint" style="margin:-4px 0 16px">
+      多家门店同时来提同一种药。库存只剩几盒时，系统只能成功出库这么多，不能超卖；
+      每个终端这次操作的响应耗时都会被记录下来。
+    </p>
+    <div class="cc-form">
+      <label class="field"><span>出库仓库</span><select id="ccWarehouse"></select></label>
+      <label class="field pick"><span>药品</span>
+        <input id="ccQ" type="text" placeholder="输入药名筛选" oninput="renderDrugOpts('ccDrug', this.value, true)">
+        <select id="ccDrug"></select>
+      </label>
+      <label class="field"><span>终端数</span>
+        <input type="number" id="ccClients" value="10" min="2" max="30"></label>
+      <label class="field"><span>每终端出库</span>
+        <input type="number" id="ccQty" value="1" min="1" max="50"></label>
+      <label class="field"><span>演示前库存重置为</span>
+        <input type="number" id="ccStock" value="8" min="0"></label>
+      <div class="field" style="justify-content:flex-end"><span>&nbsp;</span>
+        <button onclick="runConcurrency()" id="btnCc">开始并发出库</button></div>
+    </div>
+    <div class="msg" id="ccMsg"></div>
+    <div id="ccResult"><div class="center-empty">选好仓库、药品和参数后点「开始并发出库」</div></div>
+  </div>
+
+  <div class="block c-slate">
+    <div class="block-head">
+      <span class="no">12</span>
+      <h2>访问性能日志</h2>
+      <span class="note">来自 access_log 表，每次访问一条</span>
+    </div>
+    <div id="logTable"><div class="center-empty">加载中…</div></div>
+  </div>
+</section>
+
+<!-- ==================== 执行记录（默认收起） ==================== -->
+<details class="sql-panel">
+  <summary>查看实际执行的 SQL</summary>
+  <div id="sqlLog"><div class="hint">还没有执行操作</div></div>
+</details>
+
+<!-- ==================== 弹窗 ==================== -->
+<div class="modal-mask" id="modalMask" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="modalTitle"></h3>
+      <button class="close" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-foot">
+      <button class="ghost" onclick="closeModal()">取消</button>
+      <button id="modalOk" onclick="modalSubmit()">保存</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+/* ---------------- 通用 ---------------- */
+const V = id => document.getElementById(id);
+let SQL_LOG = [];
+let OPT = {suppliers: [], warehouses: [], buyers: [], sellers: [], drugs: [], categories: []};
+
+function logSQL(sql) {
+  if (!sql) return;
+  SQL_LOG.unshift(sql);
+  SQL_LOG = SQL_LOG.slice(0, 8);
+  const box = V('sqlLog');
+  if (box) box.innerHTML = SQL_LOG.map(highlightSQL).join('');
+}
+
+const TAB_NAMES = ['drug', 'io', 'form', 'report', 'concurrency'];
+function switchTab(name, btn) {
+  TAB_NAMES.forEach(t => { V('tab-' + t).style.display = (t === name ? '' : 'none'); });
+  document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  if (name === 'io') { loadPurchases(); loadSales(); loadStock(); }
+  if (name === 'form') loadForms();
+  if (name === 'report') { loadReport('supplier_rank'); loadReport('drug_sales'); loadReport('batch_chain'); loadReport('drug_trace'); }
+  if (name === 'concurrency') loadAccessLogs();
+}
+
+let modalSubmit = null;
+function openModal(title, bodyHTML, onSubmit) {
+  V('modalTitle').textContent = title;
+  V('modalBody').innerHTML = bodyHTML;
+  modalSubmit = onSubmit;
+  V('modalMask').classList.add('show');
+}
+function closeModal() { V('modalMask').classList.remove('show'); }
+function toast(el, text, kind) {
+  const box = V(el);
+  box.className = 'msg ' + (kind || 'ok') + ' show';
+  box.textContent = text;
+  clearTimeout(box._t);
+  if (kind !== 'bad') box._t = setTimeout(() => { box.className = 'msg'; }, 6000);
+}
+
+function fillSelect(id, list, valFn, textFn) {
+  V(id).innerHTML = list.map(x => '<option value="' + valFn(x) + '">' + esc(textFn(x)) + '</option>').join('');
+}
+
+function renderDrugOpts(selId, kw, withStock) {
+  const k = (kw || '').trim().toLowerCase();
+  const list = k
+    ? OPT.drugs.filter(d => (d.name || '').toLowerCase().includes(k)
+        || (d.spec || '').toLowerCase().includes(k))
+    : OPT.drugs;
+  const show = list.slice(0, 300);
+  V(selId).innerHTML = show.length
+    ? show.map(d => '<option value="' + d.id + '">' + esc(d.name)
+        + (d.spec ? ' · ' + esc(d.spec) : '')
+        + (withStock ? ' · 总库存 ' + d.stock : '') + '</option>').join('')
+    : '<option value="">没有匹配的药品</option>';
+}
+
+async function loadOptions() {
+  const r = await api('/api/options');
+  if (!r.ok) { toast('drugMsg', '基础资料读取失败：' + r.error, 'bad'); return; }
+  OPT = r.data;
+  fillSelect('pSupplier', OPT.suppliers, s => s.id, s => s.name + '（信用 ' + s.credit + '）');
+  fillSelect('pWarehouse', OPT.warehouses, w => w.id, w => w.name);
+  fillSelect('sWarehouse', OPT.warehouses, w => w.id, w => w.name);
+  fillSelect('ccWarehouse', OPT.warehouses, w => w.id, w => w.name);
+  fillSelect('pBuyer', OPT.buyers, e => e.id, e => e.name + ' · ' + e.wh);
+  fillSelect('sSeller', OPT.sellers, e => e.id, e => e.name + ' · ' + e.wh);
+  renderDrugOpts('pDrug', '');
+  renderDrugOpts('sDrug', '', true);
+  renderDrugOpts('tDrug', '');
+  renderDrugOpts('ccDrug', '', true);
+  fillPurchasePrice();
+  const d = new Date();
+  d.setFullYear(d.getFullYear() + 2);
+  V('pExpiry').value = d.toISOString().slice(0, 10);
+  const p = new Date();
+  p.setMonth(p.getMonth() - 3);
+  V('pProd').value = p.toISOString().slice(0, 10);
+}
+
+function fillPurchasePrice() {
+  const d = OPT.drugs.find(x => String(x.id) === V('pDrug').value);
+  if (d) V('pPrice').value = Number(d.pp).toFixed(2);
+}
+
+/* ---------------- 药品目录 ---------------- */
+let searchTimer = null;
+function onSearch() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(loadDrugs, 300);
+}
+
+async function loadDrugs() {
+  const r = await api('/api/drugs?q=' + encodeURIComponent(V('q').value || ''));
+  if (!r.ok) {
+    V('drugTable').innerHTML = '<div class="center-empty">' + esc(r.error) + '</div>';
+    return;
+  }
+  const rows = r.data.rows;
+  if (!rows.length) {
+    V('drugTable').innerHTML = '<div class="center-empty">没有匹配的药品</div>';
+    return;
+  }
+  let html = '<div class="table-wrap"><table><thead><tr>'
+    + '<th>编码</th><th>药品名称</th><th>规格</th><th>单位</th><th>分类</th><th>生产厂家</th>'
+    + '<th class="num">采购价</th><th class="num">零售价</th><th class="num">库存</th><th>状态</th><th>操作</th>'
+    + '</tr></thead><tbody>';
+  rows.forEach((d, i) => {
+    const rx = d.rx ? '<span class="tag rx">处方药</span>' : '';
+    html += '<tr>'
+      + '<td class="mono">' + esc(d.code) + '</td>'
+      + '<td>' + esc(d.name) + rx + '</td>'
+      + '<td>' + esc(d.spec) + '</td>'
+      + '<td>' + esc(d.unit) + '</td>'
+      + '<td>' + esc(d.cate) + '</td>'
+      + '<td>' + esc(d.maker || '') + '</td>'
+      + '<td class="num">' + d.pp.toFixed(2) + '</td>'
+      + '<td class="num">' + d.rp.toFixed(2) + '</td>'
+      + '<td class="num">' + d.stock + '</td>'
+      + '<td>' + (d.status ? '<span style="color:var(--green)">在售</span>'
+          : '<span style="color:var(--faint)">停用</span>') + '</td>'
+      + '<td><button class="link" onclick="openDrugForm(' + i + ')">编辑</button> '
+      + '<button class="link danger" onclick="removeDrug(' + i + ')">删除</button></td>'
+      + '</tr>';
+  });
+  html += '</tbody></table></div><div class="hint" style="margin-top:8px">共 ' + rows.length + ' 种药品</div>';
+  V('drugTable').innerHTML = html;
+  window._drugs = rows;
+}
+
+function openDrugForm(idx) {
+  const d = (typeof idx === 'number') ? window._drugs[idx] : null;
+  const isEdit = !!d;
+  const v = k => d ? esc(d[k]) : '';
+  const cateOpts = OPT.categories.map(c =>
+    '<option value="' + c.id + '"' + (d && d.category_id === c.id ? ' selected' : '') + '>'
+    + esc(c.name) + '</option>').join('');
+  const body = ''
+    + '<label class="field"><span>药品名称 *</span><input id="fName" type="text" value="' + v('name') + '"></label>'
+    + '<div class="form-2">'
+    + '  <label class="field"><span>规格 *</span><input id="fSpec" type="text" value="' + v('spec') + '" placeholder="如 0.25g*24粒"></label>'
+    + '  <label class="field"><span>单位</span><input id="fUnit" type="text" value="' + v('unit') + '" placeholder="盒 / 瓶 / 支"></label>'
+    + '</div>'
+    + '<div class="form-2">'
+    + '  <label class="field"><span>分类 *</span><select id="fCate">' + cateOpts + '</select></label>'
+    + '  <label class="field"><span>保质期（月）</span><input id="fLife" type="number" min="1" max="120" value="' + (d ? 24 : 24) + '"></label>'
+    + '</div>'
+    + '<label class="field"><span>生产厂家</span><input id="fMaker" type="text" value="' + v('maker') + '"></label>'
+    + '<div class="form-2">'
+    + '  <label class="field"><span>采购价（元）*</span><input id="fPp" type="number" step="0.01" min="0" value="' + (d ? d.pp : '') + '"></label>'
+    + '  <label class="field"><span>零售价（元）*</span><input id="fRp" type="number" step="0.01" min="0" value="' + (d ? d.rp : '') + '"></label>'
+    + '</div>'
+    + '<label class="check"><input id="fRx" type="checkbox" ' + (!d || d.rx ? 'checked' : '') + '> 处方药（需凭处方销售）</label>'
+    + (isEdit ? '<label class="check" style="margin-top:8px"><input id="fStatus" type="checkbox" '
+        + (d.status ? 'checked' : '') + '> 在售（取消则停用，停用后不能再做入库出库）</label>' : '');
+
+  openModal(isEdit ? '编辑药品' : '新增药品', body, async () => {
+    const payload = {
+      name: V('fName').value, spec: V('fSpec').value, unit: V('fUnit').value,
+      cate: V('fCate').value, life: V('fLife').value, maker: V('fMaker').value,
+      pp: V('fPp').value, rp: V('fRp').value, rx: V('fRx').checked
+    };
+    if (isEdit) payload.status = V('fStatus').checked;
+    const url = isEdit ? '/api/drugs/' + d.id : '/api/drugs';
+    const r = await postJSON(url, payload);
+    if (!r.ok) { toast('drugMsg', r.error, 'bad'); return; }
+    logSQL(r.data.sql);
+    closeModal();
+    toast('drugMsg', r.data.message);
+    loadDrugs();
+  });
+}
+
+async function removeDrug(idx) {
+  const d = window._drugs[idx];
+  if (!confirm('确定从药品目录删除「' + d.name + '」吗？')) return;
+  const r = await postJSON('/api/drugs/' + d.id + '/remove', {});
+  if (!r.ok) { toast('drugMsg', r.error, 'bad'); return; }
+  logSQL(r.data.sql);
+  toast('drugMsg', r.data.message);
+  loadDrugs();
+}
+
+/* ---------------- 采购入库 ---------------- */
+async function loadPurchases() {
+  const r = await api('/api/purchases');
+  if (!r.ok) { V('purchaseTable').innerHTML = '<div class="center-empty">' + esc(r.error) + '</div>'; return; }
+  V('purchaseTable').innerHTML = renderTable(
+    ['单号', '供应商', '仓库', '采购员', '下单日期', '状态', '品种数', '金额'], r.data.rows, 8);
+}
+
+async function submitPurchase() {
+  const payload = {
+    supplier_id: V('pSupplier').value, warehouse_id: V('pWarehouse').value,
+    employee_id: V('pBuyer').value, drug_id: V('pDrug').value,
+    qty: V('pQty').value, unit_price: V('pPrice').value,
+    batch_no: V('pBatch').value, prod_date: V('pProd').value, expiry_date: V('pExpiry').value
+  };
+  V('btnPurchase').disabled = true;
+  const r = await postJSON('/api/purchases', payload);
+  V('btnPurchase').disabled = false;
+  if (!r.ok) { toast('purchaseMsg', r.error, 'bad'); return; }
+  const d = r.data;
+  logSQL(d.sql);
+  toast('purchaseMsg', '已入库：' + d.drug_name + ' ' + d.spec + ' 共 ' + d.qty + d.unit
+    + '，批号 ' + d.batch_no + '；该仓库存 ' + d.stock_before + ' → ' + d.stock_after
+    + '，采购单 ' + d.po_no);
+  loadPurchases();
+  loadStock();
+  loadDrugs();
+  V('pDrugQ').value = ''; renderDrugOpts('pDrug', '');
+}
+
+/* ---------------- 销售出库 ---------------- */
+async function loadSales() {
+  const r = await api('/api/sales');
+  if (!r.ok) { V('saleTable').innerHTML = '<div class="center-empty">' + esc(r.error) + '</div>'; return; }
+  V('saleTable').innerHTML = renderTable(
+    ['单号', '客户', '类型', '仓库', '销售员', '销售日期', '品种数', '金额'], r.data.rows, 8);
+}
+
+async function submitSale() {
+  const payload = {
+    warehouse_id: V('sWarehouse').value, employee_id: V('sSeller').value,
+    drug_id: V('sDrug').value, qty: V('sQty').value,
+    customer_name: V('sCustomer').value, customer_type: V('sType').value
+  };
+  V('btnSale').disabled = true;
+  const r = await postJSON('/api/sales', payload);
+  V('btnSale').disabled = false;
+  if (!r.ok) { toast('saleMsg', r.error, 'bad'); return; }
+  const d = r.data;
+  logSQL(d.sql);
+  toast('saleMsg', '已出库：' + d.drug_name + ' ' + d.spec + ' 共 ' + d.qty + d.unit
+    + '，扣减批次 ' + (d.batch_no || '—') + '；该仓库存 ' + d.stock_before + ' → ' + d.stock_after
+    + '，销售单 ' + d.so_no);
+  loadSales();
+  loadStock();
+  loadDrugs();
+}
+
+async function loadStock() {
+  const r = await api('/api/stock');
+  if (!r.ok) { V('stockTable').innerHTML = '<div class="center-empty">' + esc(r.error) + '</div>'; return; }
+  V('stockTable').innerHTML = renderTable(null, r.data.rows, 30);
+}
+
+/* ---------------- 业务表单 ---------------- */
+let FORMS = [];
+let CUR_FORM = null;
+
+async function loadForms() {
+  const r = await api('/api/forms');
+  if (!r.ok) { V('formList').innerHTML = '<div class="center-empty">' + esc(r.error) + '</div>'; return; }
+  FORMS = r.data.items;
+  window._types = r.data.types;
+  window._templates = r.data.templates || [];
+  window._formDrugs = r.data.drugs || [];
+  if (!FORMS.length) {
+    V('formList').innerHTML = '<div class="center-empty">还没有建立任何业务表单</div>';
+    V('formDetail').innerHTML = '<div class="center-empty mid">新建表单后，在这里按药品登记</div>';
+    return FORMS;
+  }
+  V('formList').innerHTML = FORMS.map((a, i) =>
+    '<div class="table-item" id="frm' + i + '" onclick="selectForm(' + i + ')">'
+    + '<div style="flex:1"><b>' + esc(a.name) + '</b><div class="hint">'
+    + a.count + ' 条记录 · ' + a.drug_count + ' 种药品</div></div>'
+    + '<button class="link danger" onclick="event.stopPropagation();dropForm(' + i + ')">删除</button>'
+    + '</div>').join('');
+  if (CUR_FORM) {
+    const same = FORMS.findIndex(a => a.table === CUR_FORM.table);
+    if (same >= 0) selectForm(same);
+  } else {
+    selectForm(0);
+  }
+  return FORMS;
+}
+
+async function selectForm(i) {
+  CUR_FORM = FORMS[i];
+  document.querySelectorAll('#formList .table-item').forEach(el => el.classList.remove('active'));
+  const el = V('frm' + i); if (el) el.classList.add('active');
+  const r = await api('/api/forms/' + CUR_FORM.table + '/records');
+  if (!r.ok) { V('formDetail').innerHTML = '<div class="center-empty">' + esc(r.error) + '</div>'; return; }
+  CUR_FORM = r.data.meta;
+  logSQL(r.data.sql);
+  const rows = r.data.rows || [];
+  const fields = CUR_FORM.fields;
+  let html = '<div class="toolbar" style="margin-bottom:14px;justify-content:flex-end">'
+    + '<button class="btn-line" onclick="openRecordForm()">＋ 按药品登记</button></div>';
+  if (!rows.length) {
+    html += '<div class="center-empty">这个表单还没有记录，点「按药品登记」选一种药开始</div>';
+  } else {
+    html += '<div class="table-wrap"><table><thead><tr><th>药品</th>';
+    fields.forEach(f => { html += '<th>' + esc(f.label) + '</th>'; });
+    html += '<th>登记时间</th></tr></thead><tbody>';
+    rows.forEach(r => {
+      html += '<tr><td>' + esc(r.__drug)
+        + (r.__spec ? ' <span class="tag plain">' + esc(r.__spec) + '</span>' : '') + '</td>';
+      fields.forEach(f => { html += '<td>' + esc(r[f.key]) + '</td>'; });
+      html += '<td>' + esc(r.created_at) + '</td></tr>';
+    });
+    html += '</tbody></table></div><div class="hint" style="margin-top:8px">最近 '
+      + rows.length + ' 条</div>';
+  }
+  V('formDetail').innerHTML = html;
+}
+
+function openFormDialog() {
+  const tpls = window._templates || [];
+  const body = ''
+    + '<div class="hint" style="margin-bottom:4px">从常用的四类药品台账里选一个，字段自动填好，也可以自己定义</div>'
+    + '<div class="tpl-pick" id="tplPick">'
+    + tpls.map((t, i) => '<button type="button" class="tpl" data-i="' + i
+        + '" onclick="useTemplate(' + i + ')"><b>' + esc(t.name) + '</b><span>'
+        + esc(t.note) + '</span></button>').join('')
+    + '<button type="button" class="tpl" data-i="-1" onclick="useTemplate(-1)">'
+    + '<b>自定义表单</b><span>自己定名称和字段</span></button>'
+    + '</div>'
+    + '<label class="field"><span>表单名称</span><input id="aName" type="text" placeholder="如 药品召回登记"></label>'
+    + '<div class="hint" style="margin-bottom:6px">记录哪些信息？</div>'
+    + '<div id="fieldRows"></div>'
+    + '<button class="ghost small" onclick="addFieldRow()">＋ 添加字段</button>';
+  openModal('新建业务表单', body, async () => {
+    const rows = [...document.querySelectorAll('#fieldRows .field-row')];
+    const fields = rows.map(r => ({
+      label: r.querySelector('.fx-label').value,
+      type: r.querySelector('.fx-type').value,
+      required: r.querySelector('.fx-req').checked
+    }));
+    const r = await postJSON('/api/forms', {name: V('aName').value, fields: fields});
+    if (!r.ok) { alert(r.error); return; }
+    logSQL(r.data.sql);
+    closeModal();
+    loadForms();
+  });
+  useTemplate(0);
+}
+
+function useTemplate(i) {
+  document.querySelectorAll('#tplPick .tpl').forEach(el => el.classList.remove('on'));
+  const btn = document.querySelector('#tplPick .tpl[data-i="' + i + '"]');
+  if (btn) btn.classList.add('on');
+  V('fieldRows').innerHTML = '';
+  if (i < 0) {
+    V('aName').value = '';
+    for (let k = 0; k < 3; k++) addFieldRow();
+    return;
+  }
+  const t = (window._templates || [])[i];
+  if (!t) return;
+  V('aName').value = t.name;
+  t.fields.forEach(f => addFieldRow(f));
+}
+
+function addFieldRow(v) {
+  const box = V('fieldRows');
+  if (box.children.length >= 8) { alert('最多 8 个字段'); return; }
+  const types = window._types || [];
+  const opts = types.map(t => '<option value="' + t.key + '">' + t.label + '</option>').join('');
+  const div = document.createElement('div');
+  div.className = 'field-row';
+  div.innerHTML = '<input class="fx-label" type="text" placeholder="字段名称，如 召回原因">'
+    + '<select class="fx-type">' + opts + '</select>'
+    + '<label class="check"><input class="fx-req" type="checkbox"> 必填</label>'
+    + '<button class="close" onclick="this.parentNode.remove()">×</button>';
+  box.appendChild(div);
+  if (v) {
+    div.querySelector('.fx-label').value = v.label || '';
+    div.querySelector('.fx-type').value = v.type || 'text';
+    div.querySelector('.fx-req').checked = !!v.required;
+  }
+}
+
+async function dropForm(i) {
+  const a = FORMS[i];
+  if (!confirm('删除表单「' + a.name + '」后，其中的 ' + a.count + ' 条记录将一并删除，确定吗？')) return;
+  const r = await postJSON('/api/forms/' + a.table + '/remove', {force: true});
+  if (!r.ok) { alert(r.error); return; }
+  logSQL(r.data.sql);
+  CUR_FORM = null;
+  V('formDetail').innerHTML = '<div class="center-empty mid">新建表单后，在这里按药品登记</div>';
+  loadForms();
+}
+
+function openRecordForm() {
+  const fields = CUR_FORM.fields;
+  let body = '<div class="form-2">'
+    + '<label class="field"><span>搜索药品</span><input id="drugQ" type="text" placeholder="输入药名筛选" oninput="filterDrugOpts()"></label>'
+    + '<label class="field"><span>药品 *</span><select id="rDrug"></select></label>'
+    + '</div>';
+  body += fields.map(f => {
+    let input;
+    if (f.type.startsWith('DATE')) {
+      input = '<input data-k="' + f.key + '" type="date">';
+    } else if (f.type.startsWith('INT') || f.type.startsWith('DECIMAL')) {
+      input = '<input data-k="' + f.key + '" type="number" step="' + (f.type.startsWith('DECIMAL') ? '0.01' : '1') + '">';
+    } else {
+      input = '<input data-k="' + f.key + '" type="text">';
+    }
+    return '<label class="field"><span>' + esc(f.label) + (f.required ? ' *' : '') + '</span>' + input + '</label>';
+  }).join('');
+  openModal('登记表单 · ' + CUR_FORM.name, body, async () => {
+    const values = {};
+    document.querySelectorAll('#modalBody [data-k]').forEach(el => { values[el.dataset.k] = el.value; });
+    const r = await postJSON('/api/forms/' + CUR_FORM.table + '/records',
+      {values: values, drug_id: V('rDrug').value});
+    if (!r.ok) { alert(r.error); return; }
+    logSQL(r.data.sql);
+    closeModal();
+    toast('drugMsg', r.data.message);
+    selectForm(FORMS.findIndex(a => a.table === CUR_FORM.table));
+  });
+  filterDrugOpts();
+}
+
+function filterDrugOpts() {
+  const kw = (V('drugQ').value || '').trim().toLowerCase();
+  const drugs = window._formDrugs || [];
+  const list = kw
+    ? drugs.filter(d => (d.name || '').toLowerCase().includes(kw)
+        || (d.spec || '').toLowerCase().includes(kw))
+    : drugs;
+  V('rDrug').innerHTML = list.length
+    ? list.slice(0, 300).map(d => '<option value="' + d.id + '">' + esc(d.name)
+        + (d.spec ? ' · ' + esc(d.spec) : '') + '</option>').join('')
+    : '<option value="">没有匹配的药品</option>';
+}
+
+/* ---------------- 报表 ---------------- */
+const REPORT_BOX = {
+  supplier_rank: 'reportA', drug_sales: 'reportB',
+  batch_chain: 'reportC', drug_trace: 'reportD'
+};
+
+async function loadReport(name) {
+  const box = V(REPORT_BOX[name]);
+  box.innerHTML = '<div class="center-empty">生成中…</div>';
+  const payload = {name};
+  if (name === 'drug_trace') {
+    payload.drug_id = V('tDrug').value;
+    if (!payload.drug_id) { box.innerHTML = '<div class="center-empty">请先选择一种药品</div>'; return; }
+  }
+  const r = await postJSON('/api/report', payload);
+  if (!r.ok) { box.innerHTML = '<div class="center-empty">' + esc(r.error) + '</div>'; return; }
+  box.innerHTML = renderTable(r.data.columns, r.data.rows, 20);
+}
+
+/* ---------------- 并发出库 ---------------- */
+async function runConcurrency() {
+  const drugId = V('ccDrug').value;
+  const whId = V('ccWarehouse').value;
+  if (!drugId) { toast('ccMsg', '请先选择一种药品', 'bad'); return; }
+  if (!whId) { toast('ccMsg', '请先选择出库仓库', 'bad'); return; }
+  const clients = Math.max(2, Math.min(30, +V('ccClients').value || 10));
+  const qty = Math.max(1, Math.min(50, +V('ccQty').value || 1));
+  const stock = V('ccStock').value === '' ? null : Math.max(0, +V('ccStock').value);
+
+  V('btnCc').disabled = true;
+  toast('ccMsg', '正在让 ' + clients + ' 个终端同时出库…', 'info');
+  const r = await postJSON('/api/sale_concurrency',
+    {drug_id: +drugId, warehouse_id: +whId, clients: clients, qty: qty, reset_stock: stock});
+  V('btnCc').disabled = false;
+  if (!r.ok) { toast('ccMsg', '演示失败：' + r.error, 'bad'); return; }
+  renderConcurrency(r.data, drugId);
+  loadAccessLogs();
+  const o = await api('/api/options');
+  if (o.ok) { OPT = o.data; renderDrugOpts('ccDrug', V('ccQ').value, true); }
+  loadStock();
+}
+
+function renderConcurrency(d, drugId) {
+  const good = !d.oversold;
+  toast('ccMsg', good
+    ? d.clients + ' 个终端同时出「' + d.drug.name + '」（' + d.warehouse + '），成功 '
+      + d.success_count + ' 个、失败 ' + d.failed_count + ' 个；库存 ' + d.stock_before
+      + ' → ' + d.stock_after + '，出库总量与成功次数完全一致 —— 没有超卖。'
+    : '异常：库存变化与成功数对不上，检测到超卖！', good ? 'ok' : 'bad');
+
+  const rows = d.detail.map(x =>
+    '<tr><td>终端 ' + x.client + '</td>'
+    + '<td class="num">' + (x.ok ? d.qty : 0) + '</td>'
+    + '<td class="num">' + x.elapsed_ms.toFixed(2) + '</td>'
+    +     '<td>' + (x.ok
+        ? '<span style="color:var(--green)">已出库</span>'
+        : '<span style="color:var(--red)">' + esc(x.reason || '库存不足') + '</span>'
+      ) + '</td></tr>').join('');
+
+  V('ccResult').innerHTML = ''
+    + '<div class="stat-line" style="margin-top:4px">'
+    + '  <span>终端 <b>' + d.clients + '</b></span>'
+    + '  <span>成功 <b style="color:var(--green)">' + d.success_count + '</b></span>'
+    + '  <span>失败 <b style="color:var(--faint)">' + d.failed_count + '</b></span>'
+    + '  <span>库存 <b>' + d.stock_before + ' → ' + d.stock_after + '</b></span>'
+    + '  <span>总耗时 <b>' + d.elapsed_ms + ' ms</b></span>'
+    + '</div>'
+    + '<div class="stat-line">'
+    + '  <span>平均响应 <b>' + d.avg_ms + ' ms</b></span>'
+    + '  <span>最快 <b>' + d.min_ms + ' ms</b></span>'
+    + '  <span>P95 <b>' + d.p95_ms + ' ms</b></span>'
+    + '  <span>最慢 <b>' + d.max_ms + ' ms</b></span>'
+    + '  <span>吞吐 <b>' + d.qps + ' 次/秒</b></span>'
+    + '  <span>写入日志 <b>' + d.log_count + ' 条</b></span>'
+    + '</div>'
+    + '<div class="table-wrap" style="max-height:320px">'
+    + '<table class="fixed"><thead><tr><th>客户端</th><th class="num">本次出库</th>'
+    + '<th class="num">响应耗时（ms）</th><th>结果</th></tr></thead>'
+    + '<tbody>' + rows + '</tbody></table></div>';
+
+  logSQL('-- ' + d.clients + ' 个终端各执行同一段事务，同时在跑\n'
+    + 'START TRANSACTION;\n'
+    + 'SELECT quantity FROM stock WHERE drug_id = ' + drugId
+    + ' AND warehouse_id = ' + V('ccWarehouse').value + ' FOR UPDATE;\n'
+    + 'UPDATE stock SET quantity = quantity - ' + d.qty + ' ...;\n'
+    + 'INSERT INTO stock_movement (...) VALUES (..., -' + d.qty + ', ...);\n'
+    + 'COMMIT;');
+}
+
+async function loadAccessLogs() {
+  const r = await api('/api/access_logs');
+  if (!r.ok) { V('logTable').innerHTML = '<div class="center-empty">' + esc(r.error) + '</div>'; return; }
+  const rows = r.data.rows || [];
+  if (!rows.length) {
+    V('logTable').innerHTML = '<div class="center-empty">还没有访问记录，跑一次并发出库就会写进来</div>';
+    return;
+  }
+  let html = '<div class="table-wrap" style="max-height:340px"><table class="fixed"><thead><tr>'
+    + '<th>访问时间</th><th class="num">客户端</th><th>药品</th>'
+    + '<th class="num">数量</th><th class="num">耗时（ms）</th><th>结果</th>'
+    + '</tr></thead><tbody>';
+  rows.forEach(x => {
+    html += '<tr><td>' + esc(x.created_at) + '</td>'
+      + '<td class="num">' + x.client_no + '</td>'
+      + '<td>' + esc(x.drug_name || '—') + '</td>'
+      + '<td class="num">' + x.qty + '</td>'
+      + '<td class="num">' + (+x.elapsed_ms).toFixed(2) + '</td>'
+      + '<td>' + (x.ok
+          ? '<span style="color:var(--green)">成功</span>'
+          : '<span style="color:var(--faint)">库存不足</span>') + '</td></tr>';
+  });
+  html += '</tbody></table></div><div class="hint" style="margin-top:8px">共 '
+    + r.data.total + ' 条日志，这里显示最近 ' + rows.length + ' 条</div>';
+  V('logTable').innerHTML = html;
+}
+
+/* ---------------- 初始化 ---------------- */
+(async function init() {
+  await loadOptions();
+  await loadDrugs();
+})();
+
+const params = new URLSearchParams(location.search);
+const tabParam = params.get('tab');
+if (tabParam) {
+  const btn = document.querySelector('.tab[data-tab="' + tabParam + '"]');
+  if (btn) switchTab(tabParam, btn);
+}
+if (params.get('new') === 'drug') setTimeout(() => openDrugForm(), 200);
+if (params.get('run') === 'sale') (async () => {
+  switchTab('concurrency', document.querySelector('.tab[data-tab="concurrency"]'));
+  await new Promise(r => setTimeout(r, 300));
+  await runConcurrency();
+})();
+</script>
+{% endblock %}

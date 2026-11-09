@@ -1,0 +1,1493 @@
+{
+  "_说明": "药品进销存管理系统的 ER 模型（建模工具格式）。tools/model_gen.py 读取本文件自动生成建表 DDL 与 Mermaid ER 图——课程要求：应用数据库建模工具建模、数据库代码自动生成。",
+  "database": "drug_db",
+  "charset": "utf8mb4",
+  "collation": "utf8mb4_general_ci",
+  "engine": "InnoDB",
+  "entities": [
+    {
+      "name": "drug_category",
+      "cn": "药品分类",
+      "order": 1,
+      "attributes": [
+        {
+          "name": "category_id",
+          "type": "INT",
+          "comment": "分类ID",
+          "auto": true
+        },
+        {
+          "name": "category_name",
+          "type": "VARCHAR(50)",
+          "comment": "分类名称",
+          "not_null": true
+        },
+        {
+          "name": "category_code",
+          "type": "VARCHAR(20)",
+          "comment": "分类编码",
+          "not_null": true
+        },
+        {
+          "name": "description",
+          "type": "VARCHAR(200)",
+          "comment": "分类说明"
+        },
+        {
+          "name": "status",
+          "type": "TINYINT",
+          "comment": "状态：1启用 0停用",
+          "not_null": true,
+          "default": 1
+        }
+      ],
+      "primary_key": [
+        "category_id"
+      ],
+      "unique": [
+        {
+          "name": "uk_category_name",
+          "columns": [
+            "category_name"
+          ]
+        },
+        {
+          "name": "uk_category_code",
+          "columns": [
+            "category_code"
+          ]
+        }
+      ],
+      "indexes": [],
+      "foreign_keys": [],
+      "checks": []
+    },
+    {
+      "name": "supplier",
+      "cn": "供应商",
+      "order": 2,
+      "attributes": [
+        {
+          "name": "supplier_id",
+          "type": "INT",
+          "comment": "供应商ID",
+          "auto": true
+        },
+        {
+          "name": "supplier_name",
+          "type": "VARCHAR(100)",
+          "comment": "供应商名称",
+          "not_null": true
+        },
+        {
+          "name": "contact_person",
+          "type": "VARCHAR(50)",
+          "comment": "联系人"
+        },
+        {
+          "name": "phone",
+          "type": "VARCHAR(20)",
+          "comment": "联系电话"
+        },
+        {
+          "name": "address",
+          "type": "VARCHAR(200)",
+          "comment": "联系地址"
+        },
+        {
+          "name": "license_no",
+          "type": "VARCHAR(50)",
+          "comment": "药品经营许可证号"
+        },
+        {
+          "name": "credit_level",
+          "type": "VARCHAR(10)",
+          "comment": "信用等级：A/B/C",
+          "not_null": true,
+          "default": "'B'"
+        },
+        {
+          "name": "cooperate_date",
+          "type": "DATE",
+          "comment": "合作起始日期"
+        },
+        {
+          "name": "status",
+          "type": "TINYINT",
+          "comment": "状态：1合作中 0已停用",
+          "not_null": true,
+          "default": 1
+        }
+      ],
+      "primary_key": [
+        "supplier_id"
+      ],
+      "unique": [
+        {
+          "name": "uk_supplier_name",
+          "columns": [
+            "supplier_name"
+          ]
+        },
+        {
+          "name": "uk_supplier_license",
+          "columns": [
+            "license_no"
+          ]
+        }
+      ],
+      "indexes": [
+        {
+          "name": "idx_supplier_credit",
+          "columns": [
+            "credit_level"
+          ]
+        }
+      ],
+      "foreign_keys": [],
+      "checks": []
+    },
+    {
+      "name": "warehouse",
+      "cn": "仓库",
+      "order": 3,
+      "attributes": [
+        {
+          "name": "warehouse_id",
+          "type": "INT",
+          "comment": "仓库ID",
+          "auto": true
+        },
+        {
+          "name": "warehouse_name",
+          "type": "VARCHAR(50)",
+          "comment": "仓库名称",
+          "not_null": true
+        },
+        {
+          "name": "location",
+          "type": "VARCHAR(100)",
+          "comment": "仓库地址"
+        },
+        {
+          "name": "capacity",
+          "type": "INT",
+          "comment": "库容(件)",
+          "not_null": true,
+          "default": 0
+        },
+        {
+          "name": "manager",
+          "type": "VARCHAR(50)",
+          "comment": "仓库负责人"
+        },
+        {
+          "name": "status",
+          "type": "TINYINT",
+          "comment": "状态：1启用 0停用",
+          "not_null": true,
+          "default": 1
+        }
+      ],
+      "primary_key": [
+        "warehouse_id"
+      ],
+      "unique": [
+        {
+          "name": "uk_warehouse_name",
+          "columns": [
+            "warehouse_name"
+          ]
+        }
+      ],
+      "indexes": [],
+      "foreign_keys": [],
+      "checks": [
+        {
+          "name": "ck_warehouse_capacity",
+          "expr": "capacity >= 0"
+        }
+      ]
+    },
+    {
+      "name": "employee",
+      "cn": "员工",
+      "order": 4,
+      "attributes": [
+        {
+          "name": "employee_id",
+          "type": "INT",
+          "comment": "员工ID",
+          "auto": true
+        },
+        {
+          "name": "emp_no",
+          "type": "VARCHAR(20)",
+          "comment": "工号",
+          "not_null": true
+        },
+        {
+          "name": "emp_name",
+          "type": "VARCHAR(50)",
+          "comment": "姓名",
+          "not_null": true
+        },
+        {
+          "name": "gender",
+          "type": "CHAR(1)",
+          "comment": "性别：男/女",
+          "not_null": true
+        },
+        {
+          "name": "position",
+          "type": "VARCHAR(20)",
+          "comment": "岗位：采购员/仓管员/销售员/质检员",
+          "not_null": true
+        },
+        {
+          "name": "warehouse_id",
+          "type": "INT",
+          "comment": "所属仓库ID",
+          "not_null": true
+        },
+        {
+          "name": "phone",
+          "type": "VARCHAR(20)",
+          "comment": "联系电话"
+        },
+        {
+          "name": "hire_date",
+          "type": "DATE",
+          "comment": "入职日期"
+        },
+        {
+          "name": "status",
+          "type": "TINYINT",
+          "comment": "状态：1在职 0离职",
+          "not_null": true,
+          "default": 1
+        }
+      ],
+      "primary_key": [
+        "employee_id"
+      ],
+      "unique": [
+        {
+          "name": "uk_emp_no",
+          "columns": [
+            "emp_no"
+          ]
+        }
+      ],
+      "indexes": [
+        {
+          "name": "idx_emp_warehouse",
+          "columns": [
+            "warehouse_id"
+          ]
+        },
+        {
+          "name": "idx_emp_position",
+          "columns": [
+            "position"
+          ]
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "fk_emp_warehouse",
+          "columns": [
+            "warehouse_id"
+          ],
+          "ref_table": "warehouse",
+          "ref_columns": [
+            "warehouse_id"
+          ]
+        }
+      ],
+      "checks": []
+    },
+    {
+      "name": "drug",
+      "cn": "药品",
+      "order": 5,
+      "attributes": [
+        {
+          "name": "drug_id",
+          "type": "INT",
+          "comment": "药品ID",
+          "auto": true
+        },
+        {
+          "name": "drug_code",
+          "type": "VARCHAR(20)",
+          "comment": "药品编码",
+          "not_null": true
+        },
+        {
+          "name": "drug_name",
+          "type": "VARCHAR(100)",
+          "comment": "药品名称",
+          "not_null": true
+        },
+        {
+          "name": "category_id",
+          "type": "INT",
+          "comment": "分类ID",
+          "not_null": true
+        },
+        {
+          "name": "spec",
+          "type": "VARCHAR(50)",
+          "comment": "规格",
+          "not_null": true
+        },
+        {
+          "name": "unit",
+          "type": "VARCHAR(10)",
+          "comment": "单位",
+          "not_null": true,
+          "default": "'盒'"
+        },
+        {
+          "name": "manufacturer",
+          "type": "VARCHAR(100)",
+          "comment": "生产厂家"
+        },
+        {
+          "name": "approval_no",
+          "type": "VARCHAR(50)",
+          "comment": "批准文号"
+        },
+        {
+          "name": "purchase_price",
+          "type": "DECIMAL(8,2)",
+          "comment": "采购价(元)",
+          "not_null": true,
+          "default": 0
+        },
+        {
+          "name": "retail_price",
+          "type": "DECIMAL(8,2)",
+          "comment": "零售价(元)",
+          "not_null": true,
+          "default": 0
+        },
+        {
+          "name": "is_rx",
+          "type": "TINYINT",
+          "comment": "是否处方药：1是 0否",
+          "not_null": true,
+          "default": 1
+        },
+        {
+          "name": "shelf_life_months",
+          "type": "INT",
+          "comment": "保质期(月)",
+          "not_null": true,
+          "default": 24
+        },
+        {
+          "name": "status",
+          "type": "TINYINT",
+          "comment": "状态：1在售 0停用",
+          "not_null": true,
+          "default": 1
+        }
+      ],
+      "primary_key": [
+        "drug_id"
+      ],
+      "unique": [
+        {
+          "name": "uk_drug_code",
+          "columns": [
+            "drug_code"
+          ]
+        },
+        {
+          "name": "uk_drug_name_spec",
+          "columns": [
+            "drug_name",
+            "spec"
+          ]
+        }
+      ],
+      "indexes": [
+        {
+          "name": "idx_drug_category",
+          "columns": [
+            "category_id"
+          ]
+        },
+        {
+          "name": "idx_drug_name",
+          "columns": [
+            "drug_name"
+          ]
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "fk_drug_category",
+          "columns": [
+            "category_id"
+          ],
+          "ref_table": "drug_category",
+          "ref_columns": [
+            "category_id"
+          ]
+        }
+      ],
+      "checks": [
+        {
+          "name": "ck_drug_price",
+          "expr": "purchase_price >= 0 AND retail_price >= 0"
+        }
+      ]
+    },
+    {
+      "name": "purchase_order",
+      "cn": "采购单",
+      "order": 6,
+      "attributes": [
+        {
+          "name": "po_id",
+          "type": "INT",
+          "comment": "采购单ID",
+          "auto": true
+        },
+        {
+          "name": "po_no",
+          "type": "VARCHAR(24)",
+          "comment": "采购单号",
+          "not_null": true
+        },
+        {
+          "name": "supplier_id",
+          "type": "INT",
+          "comment": "供应商ID",
+          "not_null": true
+        },
+        {
+          "name": "warehouse_id",
+          "type": "INT",
+          "comment": "入库仓库ID",
+          "not_null": true
+        },
+        {
+          "name": "employee_id",
+          "type": "INT",
+          "comment": "采购员ID",
+          "not_null": true
+        },
+        {
+          "name": "order_date",
+          "type": "DATE",
+          "comment": "下单日期",
+          "not_null": true
+        },
+        {
+          "name": "expect_date",
+          "type": "DATE",
+          "comment": "预计到货日期"
+        },
+        {
+          "name": "total_amount",
+          "type": "DECIMAL(12,2)",
+          "comment": "采购金额(元)",
+          "not_null": true,
+          "default": 0
+        },
+        {
+          "name": "status",
+          "type": "VARCHAR(10)",
+          "comment": "状态：待入库/已入库/已取消",
+          "not_null": true,
+          "default": "'待入库'"
+        }
+      ],
+      "primary_key": [
+        "po_id"
+      ],
+      "unique": [
+        {
+          "name": "uk_po_no",
+          "columns": [
+            "po_no"
+          ]
+        }
+      ],
+      "indexes": [
+        {
+          "name": "idx_po_supplier",
+          "columns": [
+            "supplier_id"
+          ]
+        },
+        {
+          "name": "idx_po_date",
+          "columns": [
+            "order_date"
+          ]
+        },
+        {
+          "name": "idx_po_status",
+          "columns": [
+            "status"
+          ]
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "fk_po_supplier",
+          "columns": [
+            "supplier_id"
+          ],
+          "ref_table": "supplier",
+          "ref_columns": [
+            "supplier_id"
+          ]
+        },
+        {
+          "name": "fk_po_warehouse",
+          "columns": [
+            "warehouse_id"
+          ],
+          "ref_table": "warehouse",
+          "ref_columns": [
+            "warehouse_id"
+          ]
+        },
+        {
+          "name": "fk_po_employee",
+          "columns": [
+            "employee_id"
+          ],
+          "ref_table": "employee",
+          "ref_columns": [
+            "employee_id"
+          ]
+        }
+      ],
+      "checks": [
+        {
+          "name": "ck_po_amount",
+          "expr": "total_amount >= 0"
+        }
+      ]
+    },
+    {
+      "name": "purchase_item",
+      "cn": "采购明细",
+      "order": 7,
+      "attributes": [
+        {
+          "name": "item_id",
+          "type": "INT",
+          "comment": "明细ID",
+          "auto": true
+        },
+        {
+          "name": "po_id",
+          "type": "INT",
+          "comment": "采购单ID",
+          "not_null": true
+        },
+        {
+          "name": "drug_id",
+          "type": "INT",
+          "comment": "药品ID",
+          "not_null": true
+        },
+        {
+          "name": "quantity",
+          "type": "INT",
+          "comment": "采购数量",
+          "not_null": true
+        },
+        {
+          "name": "unit_price",
+          "type": "DECIMAL(8,2)",
+          "comment": "采购单价(元)",
+          "not_null": true
+        },
+        {
+          "name": "amount",
+          "type": "DECIMAL(10,2)",
+          "comment": "采购金额(元)",
+          "not_null": true
+        },
+        {
+          "name": "batch_no",
+          "type": "VARCHAR(30)",
+          "comment": "批号",
+          "not_null": true
+        },
+        {
+          "name": "production_date",
+          "type": "DATE",
+          "comment": "生产日期"
+        },
+        {
+          "name": "expiry_date",
+          "type": "DATE",
+          "comment": "有效期至",
+          "not_null": true
+        }
+      ],
+      "primary_key": [
+        "item_id"
+      ],
+      "unique": [],
+      "indexes": [
+        {
+          "name": "idx_pi_po",
+          "columns": [
+            "po_id"
+          ]
+        },
+        {
+          "name": "idx_pi_drug",
+          "columns": [
+            "drug_id"
+          ]
+        },
+        {
+          "name": "idx_pi_batch",
+          "columns": [
+            "batch_no"
+          ]
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "fk_pi_po",
+          "columns": [
+            "po_id"
+          ],
+          "ref_table": "purchase_order",
+          "ref_columns": [
+            "po_id"
+          ]
+        },
+        {
+          "name": "fk_pi_drug",
+          "columns": [
+            "drug_id"
+          ],
+          "ref_table": "drug",
+          "ref_columns": [
+            "drug_id"
+          ]
+        }
+      ],
+      "checks": [
+        {
+          "name": "ck_pi_qty",
+          "expr": "quantity > 0"
+        },
+        {
+          "name": "ck_pi_price",
+          "expr": "unit_price >= 0"
+        }
+      ]
+    },
+    {
+      "name": "stock",
+      "cn": "库存",
+      "order": 8,
+      "attributes": [
+        {
+          "name": "stock_id",
+          "type": "INT",
+          "comment": "库存ID",
+          "auto": true
+        },
+        {
+          "name": "drug_id",
+          "type": "INT",
+          "comment": "药品ID",
+          "not_null": true
+        },
+        {
+          "name": "warehouse_id",
+          "type": "INT",
+          "comment": "仓库ID",
+          "not_null": true
+        },
+        {
+          "name": "quantity",
+          "type": "INT",
+          "comment": "库存数量",
+          "not_null": true,
+          "default": 0
+        },
+        {
+          "name": "safety_stock",
+          "type": "INT",
+          "comment": "安全库存",
+          "not_null": true,
+          "default": 50
+        },
+        {
+          "name": "update_time",
+          "type": "DATETIME",
+          "comment": "最后更新时间",
+          "not_null": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      ],
+      "primary_key": [
+        "stock_id"
+      ],
+      "unique": [
+        {
+          "name": "uk_stock_drug_wh",
+          "columns": [
+            "drug_id",
+            "warehouse_id"
+          ]
+        }
+      ],
+      "indexes": [
+        {
+          "name": "idx_stock_warehouse",
+          "columns": [
+            "warehouse_id"
+          ]
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "fk_stock_drug",
+          "columns": [
+            "drug_id"
+          ],
+          "ref_table": "drug",
+          "ref_columns": [
+            "drug_id"
+          ]
+        },
+        {
+          "name": "fk_stock_warehouse",
+          "columns": [
+            "warehouse_id"
+          ],
+          "ref_table": "warehouse",
+          "ref_columns": [
+            "warehouse_id"
+          ]
+        }
+      ],
+      "checks": [
+        {
+          "name": "ck_stock_qty",
+          "expr": "quantity >= 0"
+        },
+        {
+          "name": "ck_stock_safety",
+          "expr": "safety_stock >= 0"
+        }
+      ]
+    },
+    {
+      "name": "stock_batch",
+      "cn": "库存批次",
+      "order": 9,
+      "attributes": [
+        {
+          "name": "batch_id",
+          "type": "INT",
+          "comment": "批次ID",
+          "auto": true
+        },
+        {
+          "name": "purchase_item_id",
+          "type": "INT",
+          "comment": "采购明细ID(1-1)",
+          "not_null": true
+        },
+        {
+          "name": "drug_id",
+          "type": "INT",
+          "comment": "药品ID",
+          "not_null": true
+        },
+        {
+          "name": "warehouse_id",
+          "type": "INT",
+          "comment": "仓库ID",
+          "not_null": true
+        },
+        {
+          "name": "batch_no",
+          "type": "VARCHAR(30)",
+          "comment": "批号",
+          "not_null": true
+        },
+        {
+          "name": "production_date",
+          "type": "DATE",
+          "comment": "生产日期"
+        },
+        {
+          "name": "expiry_date",
+          "type": "DATE",
+          "comment": "有效期至",
+          "not_null": true
+        },
+        {
+          "name": "quantity",
+          "type": "INT",
+          "comment": "批次结存数量",
+          "not_null": true,
+          "default": 0
+        },
+        {
+          "name": "purchase_price",
+          "type": "DECIMAL(8,2)",
+          "comment": "批次采购价(元)",
+          "not_null": true
+        },
+        {
+          "name": "in_date",
+          "type": "DATE",
+          "comment": "入库日期",
+          "not_null": true
+        }
+      ],
+      "primary_key": [
+        "batch_id"
+      ],
+      "unique": [
+        {
+          "name": "uk_batch_purchase",
+          "columns": [
+            "purchase_item_id"
+          ]
+        },
+        {
+          "name": "uk_batch_no",
+          "columns": [
+            "drug_id",
+            "warehouse_id",
+            "batch_no"
+          ]
+        }
+      ],
+      "indexes": [
+        {
+          "name": "idx_batch_expiry",
+          "columns": [
+            "expiry_date"
+          ]
+        },
+        {
+          "name": "idx_batch_drug",
+          "columns": [
+            "drug_id"
+          ]
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "fk_batch_item",
+          "columns": [
+            "purchase_item_id"
+          ],
+          "ref_table": "purchase_item",
+          "ref_columns": [
+            "item_id"
+          ]
+        },
+        {
+          "name": "fk_batch_drug",
+          "columns": [
+            "drug_id"
+          ],
+          "ref_table": "drug",
+          "ref_columns": [
+            "drug_id"
+          ]
+        },
+        {
+          "name": "fk_batch_warehouse",
+          "columns": [
+            "warehouse_id"
+          ],
+          "ref_table": "warehouse",
+          "ref_columns": [
+            "warehouse_id"
+          ]
+        }
+      ],
+      "checks": [
+        {
+          "name": "ck_batch_qty",
+          "expr": "quantity >= 0"
+        }
+      ]
+    },
+    {
+      "name": "sale_order",
+      "cn": "销售单",
+      "order": 10,
+      "attributes": [
+        {
+          "name": "so_id",
+          "type": "INT",
+          "comment": "销售单ID",
+          "auto": true
+        },
+        {
+          "name": "so_no",
+          "type": "VARCHAR(24)",
+          "comment": "销售单号",
+          "not_null": true
+        },
+        {
+          "name": "customer_name",
+          "type": "VARCHAR(100)",
+          "comment": "客户名称",
+          "not_null": true
+        },
+        {
+          "name": "customer_type",
+          "type": "VARCHAR(20)",
+          "comment": "客户类型：连锁药店/医院/诊所/个人",
+          "not_null": true
+        },
+        {
+          "name": "warehouse_id",
+          "type": "INT",
+          "comment": "出库仓库ID",
+          "not_null": true
+        },
+        {
+          "name": "employee_id",
+          "type": "INT",
+          "comment": "销售员ID",
+          "not_null": true
+        },
+        {
+          "name": "sale_date",
+          "type": "DATE",
+          "comment": "销售日期",
+          "not_null": true
+        },
+        {
+          "name": "total_amount",
+          "type": "DECIMAL(12,2)",
+          "comment": "销售金额(元)",
+          "not_null": true,
+          "default": 0
+        },
+        {
+          "name": "status",
+          "type": "VARCHAR(10)",
+          "comment": "状态：已出库/已退货",
+          "not_null": true,
+          "default": "'已出库'"
+        }
+      ],
+      "primary_key": [
+        "so_id"
+      ],
+      "unique": [
+        {
+          "name": "uk_so_no",
+          "columns": [
+            "so_no"
+          ]
+        }
+      ],
+      "indexes": [
+        {
+          "name": "idx_so_customer",
+          "columns": [
+            "customer_name"
+          ]
+        },
+        {
+          "name": "idx_so_date",
+          "columns": [
+            "sale_date"
+          ]
+        },
+        {
+          "name": "idx_so_warehouse",
+          "columns": [
+            "warehouse_id"
+          ]
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "fk_so_warehouse",
+          "columns": [
+            "warehouse_id"
+          ],
+          "ref_table": "warehouse",
+          "ref_columns": [
+            "warehouse_id"
+          ]
+        },
+        {
+          "name": "fk_so_employee",
+          "columns": [
+            "employee_id"
+          ],
+          "ref_table": "employee",
+          "ref_columns": [
+            "employee_id"
+          ]
+        }
+      ],
+      "checks": [
+        {
+          "name": "ck_so_amount",
+          "expr": "total_amount >= 0"
+        }
+      ]
+    },
+    {
+      "name": "sale_item",
+      "cn": "销售明细",
+      "order": 11,
+      "attributes": [
+        {
+          "name": "item_id",
+          "type": "INT",
+          "comment": "明细ID",
+          "auto": true
+        },
+        {
+          "name": "so_id",
+          "type": "INT",
+          "comment": "销售单ID",
+          "not_null": true
+        },
+        {
+          "name": "drug_id",
+          "type": "INT",
+          "comment": "药品ID",
+          "not_null": true
+        },
+        {
+          "name": "quantity",
+          "type": "INT",
+          "comment": "销售数量",
+          "not_null": true
+        },
+        {
+          "name": "unit_price",
+          "type": "DECIMAL(8,2)",
+          "comment": "销售单价(元)",
+          "not_null": true
+        },
+        {
+          "name": "amount",
+          "type": "DECIMAL(10,2)",
+          "comment": "销售金额(元)",
+          "not_null": true
+        }
+      ],
+      "primary_key": [
+        "item_id"
+      ],
+      "unique": [],
+      "indexes": [
+        {
+          "name": "idx_si_so",
+          "columns": [
+            "so_id"
+          ]
+        },
+        {
+          "name": "idx_si_drug",
+          "columns": [
+            "drug_id"
+          ]
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "fk_si_so",
+          "columns": [
+            "so_id"
+          ],
+          "ref_table": "sale_order",
+          "ref_columns": [
+            "so_id"
+          ]
+        },
+        {
+          "name": "fk_si_drug",
+          "columns": [
+            "drug_id"
+          ],
+          "ref_table": "drug",
+          "ref_columns": [
+            "drug_id"
+          ]
+        }
+      ],
+      "checks": [
+        {
+          "name": "ck_si_qty",
+          "expr": "quantity > 0"
+        },
+        {
+          "name": "ck_si_amount",
+          "expr": "amount >= 0"
+        }
+      ]
+    },
+    {
+      "name": "stock_movement",
+      "cn": "库存流水",
+      "order": 12,
+      "attributes": [
+        {
+          "name": "move_id",
+          "type": "BIGINT",
+          "comment": "流水ID",
+          "auto": true
+        },
+        {
+          "name": "drug_id",
+          "type": "INT",
+          "comment": "药品ID",
+          "not_null": true
+        },
+        {
+          "name": "warehouse_id",
+          "type": "INT",
+          "comment": "仓库ID",
+          "not_null": true
+        },
+        {
+          "name": "move_type",
+          "type": "VARCHAR(20)",
+          "comment": "变动类型：采购入库/销售出库/盘点调整/退货入库",
+          "not_null": true
+        },
+        {
+          "name": "ref_no",
+          "type": "VARCHAR(24)",
+          "comment": "关联单号"
+        },
+        {
+          "name": "change_qty",
+          "type": "INT",
+          "comment": "变动数量(正入负出)",
+          "not_null": true
+        },
+        {
+          "name": "before_qty",
+          "type": "INT",
+          "comment": "变动前库存",
+          "not_null": true
+        },
+        {
+          "name": "after_qty",
+          "type": "INT",
+          "comment": "变动后库存",
+          "not_null": true
+        },
+        {
+          "name": "batch_no",
+          "type": "VARCHAR(30)",
+          "comment": "批号"
+        },
+        {
+          "name": "employee_id",
+          "type": "INT",
+          "comment": "经办人ID",
+          "not_null": true
+        },
+        {
+          "name": "move_time",
+          "type": "DATETIME",
+          "comment": "发生时间",
+          "not_null": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      ],
+      "primary_key": [
+        "move_id"
+      ],
+      "unique": [],
+      "indexes": [
+        {
+          "name": "idx_move_drug_time",
+          "columns": [
+            "drug_id",
+            "move_time"
+          ]
+        },
+        {
+          "name": "idx_move_type_time",
+          "columns": [
+            "move_type",
+            "move_time"
+          ]
+        },
+        {
+          "name": "idx_move_time",
+          "columns": [
+            "move_time"
+          ]
+        }
+      ],
+      "foreign_keys": [
+        {
+          "name": "fk_move_drug",
+          "columns": [
+            "drug_id"
+          ],
+          "ref_table": "drug",
+          "ref_columns": [
+            "drug_id"
+          ]
+        },
+        {
+          "name": "fk_move_warehouse",
+          "columns": [
+            "warehouse_id"
+          ],
+          "ref_table": "warehouse",
+          "ref_columns": [
+            "warehouse_id"
+          ]
+        },
+        {
+          "name": "fk_move_employee",
+          "columns": [
+            "employee_id"
+          ],
+          "ref_table": "employee",
+          "ref_columns": [
+            "employee_id"
+          ]
+        }
+      ],
+      "checks": [
+        {
+          "name": "ck_move_after",
+          "expr": "after_qty >= 0"
+        },
+        {
+          "name": "ck_move_balance",
+          "expr": "after_qty = before_qty + change_qty"
+        }
+      ]
+    },
+    {
+      "name": "access_log",
+      "cn": "访问性能日志",
+      "order": 13,
+      "attributes": [
+        {
+          "name": "log_id",
+          "type": "BIGINT",
+          "comment": "日志ID",
+          "auto": true
+        },
+        {
+          "name": "scene",
+          "type": "VARCHAR(20)",
+          "comment": "场景：sale_out 销售出库",
+          "not_null": true
+        },
+        {
+          "name": "client_no",
+          "type": "INT",
+          "comment": "客户端序号",
+          "not_null": true
+        },
+        {
+          "name": "drug_id",
+          "type": "INT",
+          "comment": "药品ID(弱关联，不设外键)"
+        },
+        {
+          "name": "qty",
+          "type": "INT",
+          "comment": "本次出库数量",
+          "not_null": true
+        },
+        {
+          "name": "ok",
+          "type": "TINYINT",
+          "comment": "结果：1成功 0库存不足",
+          "not_null": true
+        },
+        {
+          "name": "elapsed_ms",
+          "type": "DECIMAL(8,2)",
+          "comment": "本次访问耗时(ms)",
+          "not_null": true
+        },
+        {
+          "name": "created_at",
+          "type": "DATETIME",
+          "comment": "访问时间",
+          "not_null": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      ],
+      "primary_key": [
+        "log_id"
+      ],
+      "unique": [],
+      "indexes": [
+        {
+          "name": "idx_log_time",
+          "columns": [
+            "created_at"
+          ]
+        },
+        {
+          "name": "idx_log_drug",
+          "columns": [
+            "drug_id"
+          ]
+        }
+      ],
+      "foreign_keys": [],
+      "checks": []
+    }
+  ],
+  "relationships": [
+    {
+      "type": "1-N",
+      "from": "drug_category",
+      "to": "drug",
+      "label": "分类包含药品"
+    },
+    {
+      "type": "1-N",
+      "from": "supplier",
+      "to": "purchase_order",
+      "label": "供应"
+    },
+    {
+      "type": "1-N",
+      "from": "warehouse",
+      "to": "employee",
+      "label": "归属"
+    },
+    {
+      "type": "1-N",
+      "from": "warehouse",
+      "to": "purchase_order",
+      "label": "入库到"
+    },
+    {
+      "type": "1-N",
+      "from": "employee",
+      "to": "purchase_order",
+      "label": "采购经办"
+    },
+    {
+      "type": "1-N",
+      "from": "purchase_order",
+      "to": "purchase_item",
+      "label": "包含明细"
+    },
+    {
+      "type": "1-N",
+      "from": "drug",
+      "to": "purchase_item",
+      "label": "被采购"
+    },
+    {
+      "type": "1-1",
+      "from": "purchase_item",
+      "to": "stock_batch",
+      "label": "入库生成批次"
+    },
+    {
+      "type": "1-N",
+      "from": "drug",
+      "to": "stock",
+      "label": "库存"
+    },
+    {
+      "type": "1-N",
+      "from": "warehouse",
+      "to": "stock",
+      "label": "存放"
+    },
+    {
+      "type": "1-N",
+      "from": "drug",
+      "to": "stock_batch",
+      "label": "批次"
+    },
+    {
+      "type": "1-N",
+      "from": "warehouse",
+      "to": "stock_batch",
+      "label": "存放批次"
+    },
+    {
+      "type": "1-N",
+      "from": "warehouse",
+      "to": "sale_order",
+      "label": "出库自"
+    },
+    {
+      "type": "1-N",
+      "from": "employee",
+      "to": "sale_order",
+      "label": "销售经办"
+    },
+    {
+      "type": "1-N",
+      "from": "sale_order",
+      "to": "sale_item",
+      "label": "包含明细"
+    },
+    {
+      "type": "1-N",
+      "from": "drug",
+      "to": "sale_item",
+      "label": "被销售"
+    },
+    {
+      "type": "1-N",
+      "from": "drug",
+      "to": "stock_movement",
+      "label": "库存变动"
+    },
+    {
+      "type": "1-N",
+      "from": "warehouse",
+      "to": "stock_movement",
+      "label": "变动仓库"
+    },
+    {
+      "type": "1-N",
+      "from": "employee",
+      "to": "stock_movement",
+      "label": "经办"
+    },
+    {
+      "type": "N-M",
+      "from": "purchase_order",
+      "to": "drug",
+      "via": "purchase_item",
+      "label": "采购单-药品"
+    },
+    {
+      "type": "N-M",
+      "from": "sale_order",
+      "to": "drug",
+      "via": "sale_item",
+      "label": "销售单-药品"
+    }
+  ]
+}

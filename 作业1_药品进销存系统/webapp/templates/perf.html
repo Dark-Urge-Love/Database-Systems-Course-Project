@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}索引性能对比 · {{ APP_TITLE }}{% endblock %}
+
+{% block content %}
+<div class="page-head c-amber">
+  <h1>索引性能对比</h1>
+  <p>同一条查询，一次走索引、一次用 IGNORE INDEX 绕过索引，对比执行计划与实测耗时。</p>
+</div>
+
+<div class="grid grid-sidebar">
+  <div class="block c-amber">
+    <div class="block-head">
+      <span class="no">01</span>
+      <h2>对比用例</h2>
+      <span class="note">选择查询条件</span>
+    </div>
+    <label class="field"><span>查询</span>
+      <select id="case">
+        {% for key, c in cases.items() %}
+        <option value="{{ key }}" data-param="{{ c.param }}">{{ c.title }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label class="field" id="wrapDrug"><span>药品编号</span>
+      <input type="number" id="drugId" value="1" min="1" max="1200"></label>
+    <label class="field" id="wrapDate" style="display:none"><span>起始日期</span>
+      <input type="date" id="since"></label>
+
+    <label class="field"><span>重复次数（取平均值）</span>
+      <input type="number" id="repeat" value="5" min="1" max="20"></label>
+
+    <button style="width:100%" onclick="runPerf()" id="btnRun">开始对比</button>
+    <div class="msg" id="perfMsg"></div>
+  </div>
+
+  <div class="block c-blue">
+    <div class="block-head">
+      <span class="no">02</span>
+      <h2>对比结果</h2>
+      <span class="note">耗时越小越好</span>
+    </div>
+    <div id="result"><div class="center-empty">点击左侧「开始对比」后显示结果</div></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const $ = id => document.getElementById(id);
+
+function syncParam() {
+  const p = $('case').selectedOptions[0].dataset.param;
+  $('wrapDrug').style.display = (p === 'drug_id') ? '' : 'none';
+  $('wrapDate').style.display = (p === 'since') ? '' : 'none';
+}
+function defaultSince() {
+  const d = new Date();
+  d.setDate(d.getDate() - 7);
+  $('since').value = d.toISOString().slice(0, 10);
+}
+$('case').addEventListener('change', syncParam);
+defaultSince();
+syncParam();
+/* 带 ?auto=1 打开时自动跑一次，方便演示与截图 */
+if (location.search.indexOf('auto=1') >= 0) setTimeout(runPerf, 200);
+
+async function runPerf() {
+  const key = $('case').value;
+  $('btnRun').disabled = true;
+  showMsg($('perfMsg'), '正在执行对比测试…', 'info');
+  const r = await postJSON('/api/perf', {
+    case: key,
+    drug_id: +$('drugId').value,
+    since: $('since').value,
+    repeat: +$('repeat').value
+  });
+  $('btnRun').disabled = false;
+  if (!r.ok) { showMsg($('perfMsg'), '失败：' + r.error, 'bad'); return; }
+  const d = r.data;
+  showMsg($('perfMsg'), `完成：${d.title}，参数 = ${d.param}，每组重复 ${d.repeat} 次`, 'ok');
+
+  const maxMs = Math.max(d.without.time.avg_ms, d.with.time.avg_ms, 0.001);
+  const w1 = Math.max(2, d.without.time.avg_ms / maxMs * 100);
+  const w2 = Math.max(2, d.with.time.avg_ms / maxMs * 100);
+
+  const planRow = (label, p, cls) => `
+    <tr>
+      <td><span class="tag ${cls}">${label}</span></td>
+      <td><b>${esc(p.type || '—')}</b></td>
+      <td>${esc(p.key || 'NULL')}</td>
+      <td class="num">${p.rows === undefined ? '—' : p.rows}</td>
+      <td class="hint">${esc(p.Extra || '')}</td>
+    </tr>`;
+
+  $('result').innerHTML = `
+    ${d.index_exists ? '' : '<div class="msg bad show">注意：索引 ' + esc(d.index) + ' 当前在数据库里并不存在，本次"有索引"的对比其实没走索引。</div>'}
+    <div class="bar-row">
+      <div><span class="tag red">无索引</span></div>
+      <div class="bar"><i class="slow" style="width:${w1}%"></i></div>
+      <div class="bar-num">${d.without.time.avg_ms} ms</div>
+    </div>
+    <div class="bar-row">
+      <div><span class="tag green">有索引</span></div>
+      <div class="bar"><i class="fast" style="width:${w2}%"></i></div>
+      <div class="bar-num">${d.with.time.avg_ms} ms</div>
+    </div>
+    <div class="spacer"></div>
+    <dl class="kv">
+      <dt>平均耗时对比</dt><dd>${d.without.time.avg_ms} ms → <b style="color:var(--green)">${d.with.time.avg_ms} ms</b>
+        ${d.speedup ? `（<b>快 ${d.speedup} 倍</b>）` : ''}</dd>
+      <dt>最小值 / 最大值（无索引）</dt><dd>${d.without.time.min_ms} / ${d.without.time.max_ms} ms</dd>
+      <dt>最小值 / 最大值（有索引）</dt><dd>${d.with.time.min_ms} / ${d.with.time.max_ms} ms</dd>
+    </dl>
+    <div class="spacer"></div>
+    <h2 style="font-size:13px">EXPLAIN 执行计划对比</h2>
+    <div class="table-wrap" style="max-height:none">
+      <table>
+        <thead><tr><th>场景</th><th>type</th><th>命中索引 key</th><th class="num">预估扫描行数</th><th>Extra</th></tr></thead>
+        <tbody>
+          ${planRow('无索引', d.without.plan, 'red')}
+          ${planRow('有索引', d.with.plan, 'green')}
+        </tbody>
+      </table>
+    </div>
+    <div class="spacer"></div>
+    <h2 style="font-size:13px">实际执行的 SQL</h2>
+    ${highlightSQL('-- 无索引（强制绕过索引）\n' + d.without.sql + '\n\n-- 有索引\n' + d.with.sql)}
+    <p class="hint" style="margin-top:10px">
+      <b>ALL</b> 是全表扫描，<b>ref</b> 是走索引；rows 是优化器预估扫描行数，从几万降到个位数即索引生效。
+    </p>`;
+}
+
+</script>
+{% endblock %}

@@ -43,3 +43,6 @@ desktop.ini
 # ---------- 建模预览中间产物 ----------
 sql/_er_preview.html
 sql/_err_probe.html
+
+# ---------- 压测明细（体积大，不入库）----------
+tools/concurrency_*.csv
