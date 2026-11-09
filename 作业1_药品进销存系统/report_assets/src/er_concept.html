@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html,body{margin:0;padding:0;background:#fff;}
+  svg{display:block;}
+  text{font-family:"Microsoft YaHei","SimHei",sans-serif;fill:#000;}
+  .ent{font-size:22px;font-weight:bold;}
+  .rel{font-size:21px;font-weight:bold;}
+  .attr{font-size:19px;}
+  .card{font-size:24px;font-weight:bold;}
+</style>
+</head>
+<body>
+<svg id="fig" width="1760" height="1400" viewBox="0 0 1760 1400" xmlns="http://www.w3.org/2000/svg">
+<rect x="0" y="0" width="1760" height="1400" fill="#ffffff"/>
+
+<!-- ================= 连接线（先画，被图形盖住） ================= -->
+<g stroke="#000" stroke-width="2" fill="none">
+  <!-- 属性连线 -->
+  <line x1="880" y1="130" x2="660"  y2="60"/>
+  <line x1="880" y1="130" x2="880"  y2="45"/>
+  <line x1="880" y1="130" x2="1100" y2="60"/>
+
+  <line x1="210" y1="180" x2="100"  y2="80"/>
+  <line x1="210" y1="180" x2="330"  y2="60"/>
+  <line x1="210" y1="180" x2="490"  y2="140"/>
+  <line x1="210" y1="180" x2="480"  y2="250"/>
+
+  <line x1="230" y1="810" x2="95"   y2="690"/>
+  <line x1="230" y1="810" x2="75"   y2="790"/>
+  <line x1="230" y1="810" x2="95"   y2="890"/>
+  <line x1="230" y1="810" x2="160"  y2="975"/>
+
+  <line x1="880" y1="570" x2="560"  y2="300"/>
+  <line x1="880" y1="570" x2="490"  y2="385"/>
+  <line x1="880" y1="570" x2="520"  y2="465"/>
+  <line x1="880" y1="570" x2="1200" y2="300"/>
+  <line x1="880" y1="570" x2="1270" y2="385"/>
+
+  <line x1="880" y1="1060" x2="600"  y2="1175"/>
+  <line x1="880" y1="1060" x2="820"  y2="1265"/>
+  <line x1="880" y1="1060" x2="1080" y2="1265"/>
+  <line x1="880" y1="1060" x2="1300" y2="1240"/>
+
+  <line x1="1360" y1="1140" x2="1550" y2="1075"/>
+  <line x1="1360" y1="1140" x2="1600" y2="1160"/>
+  <line x1="1360" y1="1140" x2="1560" y2="1245"/>
+  <line x1="1360" y1="1140" x2="1420" y2="1295"/>
+
+  <line x1="1450" y1="620" x2="1620" y2="470"/>
+  <line x1="1450" y1="620" x2="1660" y2="565"/>
+  <line x1="1450" y1="620" x2="1640" y2="675"/>
+  <line x1="1450" y1="620" x2="1555" y2="765"/>
+
+  <line x1="540" y1="690" x2="420" y2="800"/>
+  <line x1="540" y1="690" x2="570" y2="800"/>
+  <line x1="880" y1="815" x2="1060" y2="860"/>
+  <line x1="880" y1="815" x2="1060" y2="940"/>
+  <line x1="1165" y1="595" x2="1180" y2="465"/>
+  <line x1="1405" y1="880" x2="1245" y2="805"/>
+
+  <!-- 联系连线 -->
+  <line x1="210" y1="180" x2="220" y2="490"/>   <!-- 供应商-订购 -->
+  <line x1="220" y1="490" x2="230" y2="810"/>   <!-- 订购-采购单 -->
+  <line x1="230" y1="810" x2="540" y2="690"/>   <!-- 采购单-包含1 -->
+  <line x1="540" y1="690" x2="880" y2="570"/>   <!-- 包含1-药品 -->
+  <line x1="880" y1="1060" x2="880" y2="815"/>  <!-- 销售单-包含2 -->
+  <line x1="880" y1="815"  x2="880" y2="570"/>  <!-- 包含2-药品 -->
+  <line x1="880" y1="130"  x2="880" y2="350"/>  <!-- 药品分类-属于 -->
+  <line x1="880" y1="350"  x2="880" y2="570"/>  <!-- 属于-药品 -->
+  <line x1="230" y1="810"  x2="560" y2="906"/>  <!-- 采购单-经办1 -->
+  <line x1="560" y1="906"  x2="1360" y2="1140"/><!-- 经办1-员工 -->
+  <line x1="880" y1="1060" x2="1120" y2="1100"/><!-- 销售单-经办2 -->
+  <line x1="1120" y1="1100" x2="1360" y2="1140"/><!-- 经办2-员工 -->
+  <line x1="880" y1="570"  x2="1165" y2="595"/> <!-- 药品-存放 -->
+  <line x1="1165" y1="595" x2="1450" y2="620"/> <!-- 存放-仓库 -->
+  <line x1="1450" y1="620" x2="1405" y2="880"/> <!-- 仓库-任职 -->
+  <line x1="1405" y1="880" x2="1360" y2="1140"/><!-- 任职-员工 -->
+</g>
+
+<!-- ================= 实体（矩形） ================= -->
+<g fill="#fff" stroke="#000" stroke-width="2.5">
+  <rect x="135"  y="148"  width="150" height="64"/>  <!-- 供应商 -->
+  <rect x="805"  y="98"   width="150" height="64"/>  <!-- 药品分类 -->
+  <rect x="155"  y="778"  width="150" height="64"/>  <!-- 采购单 -->
+  <rect x="805"  y="538"  width="150" height="64"/>  <!-- 药品 -->
+  <rect x="805"  y="1028" width="150" height="64"/>  <!-- 销售单 -->
+  <rect x="1285" y="1108" width="150" height="64"/>  <!-- 员工 -->
+  <rect x="1375" y="588"  width="150" height="64"/>  <!-- 仓库 -->
+</g>
+<g text-anchor="middle" dominant-baseline="central" class="ent">
+  <text x="210"  y="181">供应商</text>
+  <text x="880"  y="131">药品分类</text>
+  <text x="230"  y="811">采购单</text>
+  <text x="880"  y="571">药品</text>
+  <text x="880"  y="1061">销售单</text>
+  <text x="1360" y="1141">员工</text>
+  <text x="1450" y="621">仓库</text>
+</g>
+
+<!-- ================= 联系（菱形） ================= -->
+<g fill="#fff" stroke="#000" stroke-width="2.5">
+  <polygon points="155,490 220,454 285,490 220,526"/>    <!-- 订购 -->
+  <polygon points="475,690 540,654 605,690 540,726"/>    <!-- 包含(采购) -->
+  <polygon points="815,815 880,779 945,815 880,851"/>    <!-- 包含(销售) -->
+  <polygon points="495,906 560,870 625,906 560,942"/>    <!-- 经办(采购) -->
+  <polygon points="1055,1100 1120,1064 1185,1100 1120,1136"/><!-- 经办(销售) -->
+  <polygon points="1100,595 1165,559 1230,595 1165,631"/><!-- 存放 -->
+  <polygon points="815,350 880,314 945,350 880,386"/>    <!-- 属于 -->
+  <polygon points="1340,880 1405,844 1470,880 1405,916"/><!-- 任职 -->
+</g>
+<g text-anchor="middle" dominant-baseline="central" class="rel">
+  <text x="220"  y="491">订购</text>
+  <text x="540"  y="691">包含</text>
+  <text x="880"  y="816">包含</text>
+  <text x="560"  y="907">经办</text>
+  <text x="1120" y="1101">经办</text>
+  <text x="1165" y="596">存放</text>
+  <text x="880"  y="351">属于</text>
+  <text x="1405" y="881">任职</text>
+</g>
+
+<!-- ================= 属性（椭圆） ================= -->
+<g fill="#fff" stroke="#000" stroke-width="2">
+  <!-- 药品分类 -->
+  <ellipse cx="660"  cy="60"  rx="70" ry="30"/>
+  <ellipse cx="880"  cy="45"  rx="70" ry="30"/>
+  <ellipse cx="1100" cy="60"  rx="70" ry="30"/>
+  <!-- 供应商 -->
+  <ellipse cx="100"  cy="80"  rx="70" ry="30"/>
+  <ellipse cx="330"  cy="60"  rx="84" ry="30"/>
+  <ellipse cx="490"  cy="140" rx="56" ry="30"/>
+  <ellipse cx="480"  cy="250" rx="70" ry="30"/>
+  <!-- 采购单 -->
+  <ellipse cx="95"   cy="690" rx="70" ry="30"/>
+  <ellipse cx="75"   cy="790" rx="45" ry="30"/>
+  <ellipse cx="95"   cy="890" rx="70" ry="30"/>
+  <ellipse cx="160"  cy="975" rx="56" ry="30"/>
+  <!-- 药品 -->
+  <ellipse cx="560"  cy="300" rx="56" ry="30"/>
+  <ellipse cx="490"  cy="385" rx="70" ry="30"/>
+  <ellipse cx="520"  cy="465" rx="56" ry="30"/>
+  <ellipse cx="1200" cy="300" rx="45" ry="30"/>
+  <ellipse cx="1270" cy="385" rx="56" ry="30"/>
+  <!-- 销售单 -->
+  <ellipse cx="600"  cy="1175" rx="70" ry="30"/>
+  <ellipse cx="820"  cy="1265" rx="70" ry="30"/>
+  <ellipse cx="1080" cy="1265" rx="70" ry="30"/>
+  <ellipse cx="1300" cy="1240" rx="56" ry="30"/>
+  <!-- 员工 -->
+  <ellipse cx="1550" cy="1075" rx="56" ry="30"/>
+  <ellipse cx="1600" cy="1160" rx="45" ry="30"/>
+  <ellipse cx="1560" cy="1245" rx="45" ry="30"/>
+  <ellipse cx="1420" cy="1295" rx="45" ry="30"/>
+  <!-- 仓库 -->
+  <ellipse cx="1620" cy="470"  rx="56" ry="30"/>
+  <ellipse cx="1660" cy="565"  rx="70" ry="30"/>
+  <ellipse cx="1640" cy="675"  rx="45" ry="30"/>
+  <ellipse cx="1555" cy="765"  rx="45" ry="30"/>
+  <!-- 联系属性 -->
+  <ellipse cx="420"  cy="800"  rx="45" ry="30"/>
+  <ellipse cx="570"  cy="800"  rx="45" ry="30"/>
+  <ellipse cx="1060" cy="860"  rx="45" ry="30"/>
+  <ellipse cx="1060" cy="940"  rx="45" ry="30"/>
+  <ellipse cx="1180" cy="465"  rx="70" ry="30"/>
+  <ellipse cx="1245" cy="805"  rx="45" ry="30"/>
+</g>
+<g text-anchor="middle" dominant-baseline="central" class="attr">
+  <text x="660"  y="61"><tspan text-decoration="underline">分类ID</tspan></text>
+  <text x="880"  y="46">分类名称</text>
+  <text x="1100" y="61">分类编码</text>
+
+  <text x="100"  y="81"><tspan text-decoration="underline">供应商ID</tspan></text>
+  <text x="330"  y="61">供应商名称</text>
+  <text x="490"  y="141">联系人</text>
+  <text x="480"  y="251">信用等级</text>
+
+  <text x="95"   y="691"><tspan text-decoration="underline">采购单ID</tspan></text>
+  <text x="75"   y="791">单号</text>
+  <text x="95"   y="891">下单日期</text>
+  <text x="160"  y="976">总金额</text>
+
+  <text x="560"  y="301"><tspan text-decoration="underline">药品ID</tspan></text>
+  <text x="490"  y="386">药品名称</text>
+  <text x="520"  y="466">采购价</text>
+  <text x="1200" y="301">规格</text>
+  <text x="1270" y="386">零售价</text>
+
+  <text x="600"  y="1176"><tspan text-decoration="underline">销售单ID</tspan></text>
+  <text x="820"  y="1266">客户名称</text>
+  <text x="1080" y="1266">销售日期</text>
+  <text x="1300" y="1241">总金额</text>
+
+  <text x="1550" y="1076"><tspan text-decoration="underline">员工ID</tspan></text>
+  <text x="1600" y="1161">工号</text>
+  <text x="1560" y="1246">姓名</text>
+  <text x="1420" y="1296">性别</text>
+
+  <text x="1620" y="471"><tspan text-decoration="underline">仓库ID</tspan></text>
+  <text x="1660" y="566">仓库名称</text>
+  <text x="1640" y="676">地址</text>
+  <text x="1555" y="766">库容</text>
+
+  <text x="420"  y="801">数量</text>
+  <text x="570"  y="801">单价</text>
+  <text x="1060" y="861">数量</text>
+  <text x="1060" y="941">单价</text>
+  <text x="1180" y="466">库存数量</text>
+  <text x="1245" y="806">岗位</text>
+</g>
+
+<!-- ================= 基数标注 1 / M / N ================= -->
+<g text-anchor="middle" class="card">
+  <text x="245"  y="270">1</text>   <!-- 供应商-订购 -->
+  <text x="248"  y="730">N</text>   <!-- 订购-采购单 -->
+  <text x="330"  y="752">M</text>   <!-- 采购单-包含1 -->
+  <text x="800"  y="552">N</text>   <!-- 包含1-药品 -->
+  <text x="905"  y="995">M</text>   <!-- 销售单-包含2 -->
+  <text x="905"  y="655">N</text>   <!-- 包含2-药品 -->
+  <text x="905"  y="235">1</text>   <!-- 药品分类-属于 -->
+  <text x="905"  y="485">N</text>   <!-- 属于-药品 -->
+  <text x="345"  y="828">N</text>   <!-- 采购单-经办1 -->
+  <text x="1130" y="1058">1</text>  <!-- 经办1-员工 -->
+  <text x="985"  y="1048">N</text>  <!-- 销售单-经办2 -->
+  <text x="1272" y="1148">1</text>  <!-- 经办2-员工 -->
+  <text x="1010" y="565">N</text>   <!-- 药品-存放 -->
+  <text x="1330" y="588">M</text>   <!-- 存放-仓库 -->
+  <text x="1458" y="722">1</text>   <!-- 仓库-任职 -->
+  <text x="1408" y="1052">N</text>  <!-- 任职-员工 -->
+</g>
+</svg>
+</body>
+</html>

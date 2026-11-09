@@ -3,8 +3,7 @@
 Views 层：页面路由与 Ajax 接口
 ------------------------------------------------------------------
 对应课程要求的 B/S 结构：浏览器（客户端）→ Flask（本机）→ 通过 TCP/IP
-访问 Linux 服务器上的 MySQL。数据概览页显示当前连接的目标服务器信息，
-方便答辩时直接证明"数据不在本机"。
+访问 Linux 服务器上的 MySQL。
 """
 import datetime
 import re
@@ -13,7 +12,7 @@ import uuid
 import traceback
 
 import pymysql
-from flask import Blueprint, jsonify, render_template, request
+from flask import Blueprint, jsonify, redirect, render_template, request, url_for
 
 from . import config, dao, services
 from .db import BizError, get_cursor
@@ -132,26 +131,11 @@ def _friendly(e, sql=None):
 
 
 # =====================================================================
-# 首页：数据规模证明（课程要求：≥5 表、≥100,000 条）
+# 入口：直接进入业务页
 # =====================================================================
 @bp.route("/")
-def dashboard():
-    log_count = 0
-    summary = {"total_qty": 0, "sku_rows": 0, "low_rows": 0, "near_expiry": 0}
-    try:
-        rows, total = dao.table_row_counts()
-        db_ok, db_err = True, None
-        try:
-            log_count = dao.access_log_count()
-            summary = dao.stock_summary()
-        except pymysql.MySQLError:
-            pass
-    except Exception as e:                                     # noqa: BLE001
-        rows, total = [], 0
-        db_ok, db_err = False, str(e)
-    return render_template("dashboard.html", rows=rows, total=total,
-                           db_ok=db_ok, db_err=db_err, log_count=log_count,
-                           summary=summary)
+def index():
+    return redirect(url_for("main.ops_page"))
 
 
 @bp.route("/ops")
@@ -471,7 +455,11 @@ def api_stock():
 # =====================================================================
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 _FORM_PREFIX = "bizform_"
-CORE_TABLES = set(dao.TABLES)
+CORE_TABLES = {
+    "drug_category", "supplier", "warehouse", "employee", "drug",
+    "purchase_order", "purchase_item", "stock", "stock_batch",
+    "sale_order", "sale_item", "stock_movement", "access_log",
+}
 
 FORM_TYPES = {
     "text":  ("文本", "VARCHAR(100)"),
@@ -574,8 +562,10 @@ def api_forms():
                 meta["count"] = row["c"]
                 meta["drug_count"] = row["d"]
                 items.append(meta)
+            # 不设 LIMIT：药品 1200+ 种，截断会让新登记的药在「表单记录」的
+            # 药品下拉里彻底消失（前端带关键字筛选，不需要 SQL 层限流）
             cur.execute("SELECT drug_id AS id, drug_name AS name, spec, unit "
-                        "FROM drug WHERE status = 1 ORDER BY drug_name LIMIT 1200")
+                        "FROM drug WHERE status = 1 ORDER BY drug_name")
             drugs = cur.fetchall()
         return _ok({"items": items, "drugs": drugs, "templates": FORM_TEMPLATES,
                     "types": [{"key": k, "label": v[0]} for k, v in FORM_TYPES.items()]})
@@ -794,40 +784,20 @@ def api_access_logs():
 
 
 # =====================================================================
-# 索引支持：同一查询在「走索引」与「强制绕过索引」两种情况下对比
+# 索引支持（融入业务）：对「单药品出入库全链路」这条真实业务查询做体检——
+# 同一条 SQL 一次正常执行（走索引）、一次 IGNORE INDEX 强制全表扫描，
+# 用实测耗时和 EXPLAIN 计划说明索引在业务查询里的作用。
 # =====================================================================
-PERF_CASES = {
-    "movement_by_drug": {
-        "title": "按药品查库存流水（stock_movement，5.7 万行）",
-        "table": "stock_movement",
-        "index": "idx_move_drug_time",
-        "sql": ("SELECT SQL_NO_CACHE m.move_id, m.move_time, m.move_type, m.change_qty "
-                "FROM stock_movement m{ignore} WHERE m.drug_id = %s "
-                "AND m.move_time >= '2025-01-01'"),
-        "ignore": ["idx_move_drug_time", "idx_move_time"],
-        "param": "drug_id",
-        "hint": "药品编号",
-    },
-    "movement_by_date": {
-        "title": "按日期统计近期出入库（stock_movement，时间范围）",
-        "table": "stock_movement",
-        "index": "idx_move_time",
-        "sql": ("SELECT SQL_NO_CACHE COUNT(*) AS cnt, SUM(m.change_qty) AS qty "
-                "FROM stock_movement m{ignore} WHERE m.move_time >= %s"),
-        "ignore": ["idx_move_time", "idx_move_type_time", "idx_move_drug_time"],
-        "param": "since",
-        "hint": "起始日期",
-    },
-}
-
-
-def _explain(cur, sql, args):
+def _explain(cur, sql, args, alias="m"):
+    """EXPLAIN 会输出 JOIN 每一行，这里取流水表（别名 m）那一行，
+    它才反映"走索引 ref"还是"全表扫描 ALL"。"""
     cur.execute("EXPLAIN " + sql, args)
-    row = cur.fetchone() or {}
-    return {k: row.get(k) for k in ("type", "key", "rows", "possible_keys", "Extra") if k in row}
+    rows = cur.fetchall() or []
+    pick = next((r for r in rows if r.get("table") == alias), rows[0] if rows else {})
+    return {k: pick.get(k) for k in ("type", "key", "rows") if k in pick}
 
 
-def _timed(cur, sql, args, repeat=5):
+def _timed(cur, sql, args, repeat=3):
     durations = []
     for _ in range(repeat):
         t0 = time.perf_counter()
@@ -835,67 +805,42 @@ def _timed(cur, sql, args, repeat=5):
         cur.fetchall()
         durations.append((time.perf_counter() - t0) * 1000)
     durations.sort()
-    return {
-        "avg_ms": round(sum(durations) / len(durations), 3),
-        "min_ms": round(durations[0], 3),
-        "max_ms": round(durations[-1], 3),
-        "samples": [round(d, 3) for d in durations],
-    }
+    return round(sum(durations) / len(durations), 2)
 
 
-@bp.route("/perf")
-def perf_page():
-    return render_template("perf.html", cases=PERF_CASES)
-
-
-@bp.route("/api/perf", methods=["POST"])
-def api_perf():
-    body = request.get_json(silent=True) or {}
-    key = body.get("case")
-    if key not in PERF_CASES:
-        return _err("未知用例")
-    case = PERF_CASES[key]
-
-    if case["param"] == "drug_id":
-        param = int(body.get("drug_id") or 1)
-        args = (param,)
-    else:
-        param = (body.get("since") or "2026-09-01").strip()
-        args = (param,)
-    repeat = min(int(body.get("repeat") or 5), 20)
-
-    with get_cursor() as cur:
-        cur.execute(
-            "SELECT DISTINCT index_name FROM information_schema.statistics "
-            "WHERE table_schema = DATABASE() AND table_name = %s", (case["table"],))
-        existing = {r["INDEX_NAME"] or r["index_name"] for r in cur.fetchall()}
-        index_exists = case["index"] in existing
+@bp.route("/api/index_check")
+def api_index_check():
+    drug_id = request.args.get("drug_id", type=int)
+    if not drug_id:
+        return _err("请先选择药品")
+    repeat = min(request.args.get("repeat", 3, type=int) or 3, 10)
 
     try:
-        ignored = [i for i in case["ignore"] if i in existing]
-        ignore_clause = (" IGNORE INDEX (" + ", ".join(ignored) + ")") if ignored else ""
-        without_sql = case["sql"].replace("{ignore}", ignore_clause)
+        normal_sql = dao.TRACE_SQL.replace("{ignore}", "")
+        slow_sql = dao.TRACE_SQL.replace(
+            "{ignore}", " IGNORE INDEX (idx_move_drug_time, idx_move_time)")
+
         with get_cursor() as cur:
-            plan_without = _explain(cur, without_sql, args)
-            time_without = _timed(cur, without_sql, args, repeat)
-        with get_cursor() as cur:
-            with_sql = case["sql"].replace("{ignore}", "")
-            plan_with = _explain(cur, with_sql, args)
-            time_with = _timed(cur, with_sql, args, repeat)
+            cur.execute(
+                "SELECT COUNT(*) AS cnt FROM information_schema.statistics "
+                "WHERE table_schema = DATABASE() AND table_name = 'stock_movement' "
+                "AND index_name = 'idx_move_drug_time'")
+            row = cur.fetchone() or {}
+            index_exists = bool(row.get("cnt"))
+            plan_with = _explain(cur, normal_sql, [drug_id, 20])
+            plan_without = _explain(cur, slow_sql, [drug_id, 20])
+            ms_with = _timed(cur, normal_sql, [drug_id, 20], repeat)
+            ms_without = _timed(cur, slow_sql, [drug_id, 20], repeat)
     except pymysql.MySQLError as e:
-        return _err("执行失败：%s" % str(e))
+        return _err(_friendly(e))
 
-    speedup = None
-    if time_with["avg_ms"] > 0:
-        speedup = round(time_without["avg_ms"] / time_with["avg_ms"], 2)
-
+    speedup = round(ms_without / ms_with, 1) if ms_with > 0 else None
     return _ok({
-        "title": case["title"],
-        "index": case["index"],
+        "drug_id": drug_id,
+        "index": "idx_move_drug_time",
         "index_exists": index_exists,
-        "param": param,
         "repeat": repeat,
-        "without": {"plan": plan_without, "time": time_without, "sql": without_sql},
-        "with": {"plan": plan_with, "time": time_with, "sql": with_sql},
+        "with": {"ms": ms_with, "plan": plan_with},
+        "without": {"ms": ms_without, "plan": plan_without},
         "speedup": speedup,
     })

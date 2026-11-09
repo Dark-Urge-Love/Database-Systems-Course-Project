@@ -56,52 +56,12 @@ def access_log_count():
     return query_one("SELECT COUNT(*) AS c FROM access_log")["c"]
 
 
-# =====================================================================
-# 概览 / 统计
-# =====================================================================
-TABLES = [
-    "drug_category", "supplier", "warehouse", "employee", "drug",
-    "purchase_order", "purchase_item", "stock", "stock_batch",
-    "sale_order", "sale_item", "stock_movement",
-]
-
-TABLE_CN = {
-    "drug_category": "药品分类", "supplier": "供应商", "warehouse": "仓库",
-    "employee": "员工", "drug": "药品", "purchase_order": "采购单",
-    "purchase_item": "采购明细", "stock": "库存", "stock_batch": "库存批次",
-    "sale_order": "销售单", "sale_item": "销售明细", "stock_movement": "库存流水",
-}
-
-
-def table_row_counts():
-    """逐表精确行数（不用 information_schema 的估算值）。"""
-    rows = []
-    total = 0
-    for t in TABLES:
-        n = query_one("SELECT COUNT(*) AS c FROM `%s`" % t)["c"]
-        rows.append({"table": t, "cn": TABLE_CN.get(t, t), "rows": n})
-        total += n
-    return rows, total
-
-
 def server_info():
     """取服务器版本 / 当前连接身份，用于证明"连的是远程 Linux 服务器"。"""
     return query_one(
         "SELECT VERSION() AS version, CURRENT_USER() AS db_user, "
         "@@hostname AS hostname, @@port AS port, @@datadir AS datadir"
     )
-
-
-def stock_summary():
-    """首页关键指标：库存总量、低于安全库存的品种数、近效期批次。"""
-    row = query_one(
-        "SELECT COALESCE(SUM(quantity),0) AS total_qty, COUNT(*) AS sku_rows, "
-        "SUM(quantity < safety_stock) AS low_rows FROM stock")
-    near = query_one(
-        "SELECT COUNT(*) AS c FROM stock_batch "
-        "WHERE quantity > 0 AND expiry_date < DATE_ADD(CURDATE(), INTERVAL 90 DAY)")
-    row["near_expiry"] = near["c"]
-    return row
 
 
 # =====================================================================
@@ -128,7 +88,12 @@ def list_drugs(keyword=None, limit=200):
 
 
 def drug_options():
-    """下拉候选：在售药品 + 各仓库库存。"""
+    """下拉候选：在售药品 + 各仓库库存。
+
+    不设 LIMIT：新加的药品按名称排序后可能排在最后，
+    之前写死 LIMIT 1200 会把它切掉，导致采购 / 销售下拉里找不到。
+    （1200 种药品的下拉数据量很小，前端还带关键字筛选，不必截断。）
+    """
     return query_all(
         "SELECT d.drug_id AS id, d.drug_name AS name, d.spec, d.unit, "
         "d.purchase_price AS pp, d.retail_price AS rp, d.category_id, "
@@ -137,7 +102,7 @@ def drug_options():
         "WHERE d.status = 1 "
         "GROUP BY d.drug_id, d.drug_name, d.spec, d.unit, d.purchase_price, "
         "         d.retail_price, d.category_id "
-        "ORDER BY d.drug_name LIMIT 1200")
+        "ORDER BY d.drug_name")
 
 
 def list_categories():
@@ -272,21 +237,26 @@ def report_batch_chain(limit=20):
         "ORDER BY sb.expiry_date LIMIT %s", [limit])
 
 
+# 单药品出入库全链路 SQL（7 表 JOIN）。{ignore} 占位符供「索引体检」
+# 注入 IGNORE INDEX 强制全表扫描，与正常业务查询形成对照。
+TRACE_SQL = (
+    "SELECT m.move_time AS 发生时间, m.move_type AS 类型, "
+    "dr.drug_name AS 药品, w.warehouse_name AS 仓库, "
+    "m.change_qty AS 变动, m.before_qty AS 变动前, m.after_qty AS 变动后, "
+    "m.batch_no AS 批号, e.emp_name AS 经办人, m.ref_no AS 关联单号, "
+    "COALESCE(so.customer_name, sp.supplier_name, '—') AS 往来单位 "
+    "FROM stock_movement m{ignore} "
+    "JOIN drug dr ON dr.drug_id = m.drug_id "
+    "JOIN warehouse w ON w.warehouse_id = m.warehouse_id "
+    "JOIN employee e ON e.employee_id = m.employee_id "
+    "LEFT JOIN sale_order so ON so.so_no = m.ref_no "
+    "LEFT JOIN purchase_order po ON po.po_no = m.ref_no "
+    "LEFT JOIN supplier sp ON sp.supplier_id = po.supplier_id "
+    "WHERE m.drug_id = %s "
+    "ORDER BY m.move_time DESC, m.move_id DESC LIMIT %s")
+
+
 def report_drug_trace(drug_id, limit=20):
     """单药品出入库全链路：stock_movement → drug → warehouse → employee
        + LEFT JOIN sale_order / purchase_order / supplier（7 表）"""
-    return query_all(
-        "SELECT m.move_time AS 发生时间, m.move_type AS 类型, "
-        "dr.drug_name AS 药品, w.warehouse_name AS 仓库, "
-        "m.change_qty AS 变动, m.before_qty AS 变动前, m.after_qty AS 变动后, "
-        "m.batch_no AS 批号, e.emp_name AS 经办人, m.ref_no AS 关联单号, "
-        "COALESCE(so.customer_name, sp.supplier_name, '—') AS 往来单位 "
-        "FROM stock_movement m "
-        "JOIN drug dr ON dr.drug_id = m.drug_id "
-        "JOIN warehouse w ON w.warehouse_id = m.warehouse_id "
-        "JOIN employee e ON e.employee_id = m.employee_id "
-        "LEFT JOIN sale_order so ON so.so_no = m.ref_no "
-        "LEFT JOIN purchase_order po ON po.po_no = m.ref_no "
-        "LEFT JOIN supplier sp ON sp.supplier_id = po.supplier_id "
-        "WHERE m.drug_id = %s "
-        "ORDER BY m.move_time DESC, m.move_id DESC LIMIT %s", [drug_id, limit])
+    return query_all(TRACE_SQL.replace("{ignore}", ""), [drug_id, limit])

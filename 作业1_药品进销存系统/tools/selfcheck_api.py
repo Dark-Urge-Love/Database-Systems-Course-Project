@@ -32,7 +32,7 @@ def check(name, cond, detail=""):
 print("=" * 72)
 print("A. 页面可访问性")
 print("=" * 72)
-for path, kw in [("/", "数据总量"), ("/ops", "采购入库"), ("/perf", "索引")]:
+for path, kw in [("/", "进销存业务"), ("/ops", "采购入库"), ("/ops", "索引体检")]:
     st, html = call("GET", path)
     raw = html if isinstance(html, str) else json.dumps(html, ensure_ascii=False)
     check("GET %s" % path, st == 200 and kw in raw, "HTTP %s / 关键字「%s」%s"
@@ -243,18 +243,16 @@ check("    日志表可查（JOIN 药品名）", r.get("ok") and len(logs) > 0,
 
 print()
 print("=" * 72)
-print("H. 索引对比")
+print("H. 索引体检（业务查询 走索引 vs IGNORE INDEX 全表扫描）")
 print("=" * 72)
-for case, extra in [("movement_by_drug", {"drug_id": tid}),
-                    ("movement_by_date", {"since": (datetime.date.today()
-                                                    - datetime.timedelta(days=7)).isoformat()})]:
-    st, r = call("POST", "/api/perf", dict(case=case, repeat=3, **extra))
-    d = r.get("data") or {}
-    w, wo = d.get("with", {}), d.get("without", {})
-    check("12) 索引对比 %s" % case, r.get("ok") and d.get("speedup") is not None,
-          "走索引 %s ms / 全表 %s ms / 提速 %sx / type %s vs %s" % (
-              w.get("time", {}).get("avg_ms"), wo.get("time", {}).get("avg_ms"),
-              d.get("speedup"), w.get("plan", {}).get("type"), wo.get("plan", {}).get("type")))
+st, r = call("GET", "/api/index_check?drug_id=%d&repeat=3" % tid)
+d = r.get("data") or {}
+w, wo = d.get("with", {}), d.get("without", {})
+check("12) 索引体检 drug_id=%d" % tid, r.get("ok") and d.get("speedup") is not None,
+      "走索引 %s ms / 全表 %s ms / 提速 %sx / type %s vs %s / 索引 %s" % (
+          w.get("ms"), wo.get("ms"), d.get("speedup"),
+          w.get("plan", {}).get("type"), wo.get("plan", {}).get("type"),
+          d.get("index")))
 
 print()
 print("=" * 72)

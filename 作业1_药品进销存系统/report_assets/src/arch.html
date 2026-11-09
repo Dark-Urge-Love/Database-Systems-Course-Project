@@ -1,0 +1,32 @@
+<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8"><style>
+  body{margin:0;background:#fff;font-family:"SimSun","宋体",serif;}
+  #c{position:relative;width:900px;height:340px}
+  .layer{position:absolute;border:1.8px solid #24476f;background:#f6f9fc;padding:12px 14px}
+  .layer h3{margin:0 0 9px 0;font-size:17px;color:#24476f;letter-spacing:.5px}
+  .box{border:1.2px solid #6b7683;background:#fff;padding:8px 10px;
+        font-size:16px;line-height:23px;color:#1b1b1b}
+  .arr{position:absolute;height:0;border-top:2px solid #a03030}
+  .arr::after{content:"";position:absolute;right:-1px;top:-8px;
+        border:8px solid transparent;border-left:13px solid #a03030}
+  .lbl{position:absolute;font-size:15px;color:#24476f;text-align:center;width:170px}
+</style></head><body><div id="c">
+  <div class="layer" style="left:6px;top:20px;width:250px;height:290px">
+    <h3>客户端（浏览器）</h3>
+    <div class="box" style="margin-bottom:9px">药品目录 · 采购入库<br>销售出库 · 业务表单<br>运营报表 · 并发出库</div>
+    <div class="box">HTML + 原生 JS<br>fetch 调用 REST 接口</div>
+  </div>
+  <div class="layer" style="left:325px;top:20px;width:250px;height:290px">
+    <h3>应用层（Flask · Windows）</h3>
+    <div class="box" style="margin-bottom:9px">views.py 路由与接口<br>services.py 校验·行锁·事务</div>
+    <div class="box">dao.py 手写参数化 SQL<br>PyMySQL 驱动</div>
+  </div>
+  <div class="layer" style="left:644px;top:20px;width:250px;height:290px">
+    <h3>数据库（Linux 服务器）</h3>
+    <div class="box" style="margin-bottom:9px">MySQL 8.0 监听 0.0.0.0:3306<br>drug_db：13 张表</div>
+    <div class="box">独立 IP 192.168.150.181<br>数据目录 /var/lib/mysql</div>
+  </div>
+  <div class="arr" style="left:262px;top:150px;width:58px"></div>
+  <div class="lbl" style="left:206px;top:112px">① HTTP / JSON</div>
+  <div class="arr" style="left:581px;top:150px;width:58px"></div>
+  <div class="lbl" style="left:525px;top:112px">② TCP 3306</div>
+</div></body></html>

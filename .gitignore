@@ -46,3 +46,9 @@ sql/_err_probe.html
 
 # ---------- 压测明细（体积大，不入库）----------
 tools/concurrency_*.csv
+
+# ---------- 报告管线中间产物与备份（stage1 草稿与 stage3 成品入库存档）----------
+作业1_药品进销存系统/output/**/stage2/
+作业1_药品进销存系统/output/**/stage3/*备份*.docx
+*.html.bak
+.npmcache/
