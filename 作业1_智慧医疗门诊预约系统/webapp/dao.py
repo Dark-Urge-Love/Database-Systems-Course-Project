@@ -128,6 +128,26 @@ def report_doctor_revenue(limit=10):
     )
 
 
+def report_drug_consume(limit=15):
+    """药品消耗排行：按「科室 × 药品」统计开出的数量与金额。
+       prescription_item → prescription → visit → doctor → department → drug（6 表）"""
+    return query_all(
+        "SELECT dp.dept_name AS 科室, dr.drug_name AS 药品, dr.spec AS 规格, "
+        "SUM(i.quantity) AS 开药数量, "
+        "ROUND(SUM(i.quantity * i.unit_price), 2) AS 开药金额, "
+        "COUNT(DISTINCT pr.presc_id) AS 处方张数 "
+        "FROM prescription_item i "
+        "JOIN prescription pr ON i.presc_id = pr.presc_id "
+        "JOIN visit v ON pr.visit_id = v.visit_id "
+        "JOIN doctor d ON v.doctor_id = d.doctor_id "
+        "JOIN department dp ON d.dept_id = dp.dept_id "
+        "JOIN drug dr ON i.drug_id = dr.drug_id "
+        "GROUP BY dp.dept_id, dp.dept_name, dr.drug_id, dr.drug_name, dr.spec "
+        "ORDER BY 开药金额 DESC LIMIT %s",
+        [limit],
+    )
+
+
 def report_patient_flow(patient_id, limit=20):
     """单个患者的完整就诊流水：patient + appointment + visit + prescription
        + prescription_item + drug + doctor（7 表 join）"""

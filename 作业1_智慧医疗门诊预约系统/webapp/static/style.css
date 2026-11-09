@@ -487,6 +487,27 @@ button.close {
 }
 button.close:hover { background: #f4f4f5; color: var(--ink); opacity: 1; }
 
+/* 台账模板选择：细线分隔，不用卡片 */
+.tpl-pick { margin: 8px 0 20px; }
+.tpl {
+  display: block; width: 100%; text-align: left;
+  padding: 9px 0; margin: 0; border: 0; border-top: 1px solid var(--rule);
+  background: none; border-radius: 0; font: inherit; cursor: pointer;
+}
+.tpl-pick .tpl:first-child { border-top: 0; }
+.tpl b {
+  display: block; font-size: 13.5px; font-weight: 600;
+  color: var(--ink-2); letter-spacing: -.01em;
+}
+.tpl span { font-size: 12px; color: var(--ink-3); }
+.tpl:hover { opacity: 1; }
+.tpl:hover b { color: var(--ink); }
+.tpl.on b { color: var(--green); }
+.tpl.on b::after {
+  content: " 已选"; font-weight: 400; font-size: 11px; color: var(--ink-3);
+  letter-spacing: 0;
+}
+
 /* 档案字段编辑行 */
 .field-row {
   display: grid; grid-template-columns: 1fr 104px 60px 26px;

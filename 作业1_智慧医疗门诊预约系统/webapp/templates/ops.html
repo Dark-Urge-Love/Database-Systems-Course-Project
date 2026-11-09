@@ -4,12 +4,12 @@
 {% block content %}
 <div class="page-head c-violet">
   <h1>药房业务</h1>
-  <p>药品目录、业务档案、运营报表　—　课程要求的六项基本操作都在这里完成，每次操作都会显示实际执行的 SQL。</p>
+  <p>药品目录、药品台账、运营报表　—　课程要求的六项基本操作都在这里完成，每次操作都会显示实际执行的 SQL。</p>
 </div>
 
 <div class="tabs">
   <button class="tab active" data-tab="drug" onclick="switchTab('drug', this)">药品目录</button>
-  <button class="tab" data-tab="archive" onclick="switchTab('archive', this)">业务档案</button>
+  <button class="tab" data-tab="archive" onclick="switchTab('archive', this)">药品台账</button>
   <button class="tab" data-tab="report" onclick="switchTab('report', this)">运营报表</button>
 </div>
 
@@ -31,25 +31,25 @@
   </div>
 </section>
 
-<!-- ==================== 业务档案 ==================== -->
+<!-- ==================== 药品台账 ==================== -->
 <section id="tab-archive" style="display:none">
   <div class="grid grid-sidebar">
     <div class="block c-violet">
       <div class="block-head">
         <span class="no">02</span>
-        <h2>业务档案</h2>
+        <h2>药品台账</h2>
         <span class="note">建表 · 删表</span>
       </div>
-      <button class="btn-line block-level" onclick="openArchiveForm()">＋ 新建业务档案</button>
+      <button class="btn-line block-level" onclick="openArchiveForm()">＋ 新建药品台账</button>
       <div id="archiveList" style="margin-top:10px"><div class="center-empty">加载中…</div></div>
     </div>
     <div class="block c-teal">
       <div class="block-head">
         <span class="no">03</span>
-        <h2>档案记录</h2>
-        <span class="note">表内数据的录入与查看</span>
+        <h2>台账记录</h2>
+        <span class="note">按药品登记，联动药品目录</span>
       </div>
-      <div id="archiveDetail"><div class="center-empty mid">新建档案后，在这里录入和查看记录</div></div>
+      <div id="archiveDetail"><div class="center-empty mid">新建台账后，在这里按药品登记</div></div>
     </div>
   </div>
 </section>
@@ -65,9 +65,30 @@
     <div id="reportA"><div class="center-empty">加载中…</div></div>
   </div>
 
-  <div class="block c-amber">
+  <div class="block c-blue">
     <div class="block-head">
       <span class="no">05</span>
+      <h2>药品消耗排行</h2>
+      <span class="note">6 表 JOIN · 按科室统计每种药开了多少</span>
+    </div>
+    <div id="reportC"><div class="center-empty">加载中…</div></div>
+  </div>
+
+  <div class="block c-green">
+    <div class="block-head">
+      <span class="no">06</span>
+      <h2>药品台账总览</h2>
+      <div class="btn-row" style="margin-left:auto">
+        <span class="hint">台账 JOIN 药品</span>
+        <select id="ledgerSel" onchange="loadReport('drug_ledger')" style="width:190px"></select>
+      </div>
+    </div>
+    <div id="reportD"></div>
+  </div>
+
+  <div class="block c-amber">
+    <div class="block-head">
+      <span class="no">07</span>
       <h2>患者就诊流水</h2>
       <div class="btn-row" style="margin-left:auto">
         <span class="hint">7 表 JOIN · 患者编号</span>
@@ -122,7 +143,12 @@ function switchTab(name, btn) {
   document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   if (name === 'archive') loadArchives();
-  if (name === 'report') { loadReport('doctor_revenue'); loadReport('patient_flow'); }
+  if (name === 'report') {
+    loadReport('doctor_revenue');
+    loadReport('drug_consume');
+    loadReport('patient_flow');
+    fillLedgerSelect();
+  }
 }
 
 let modalSubmit = null;
@@ -236,14 +262,17 @@ async function loadArchives() {
   if (!r.ok) { V('archiveList').innerHTML = '<div class="center-empty">' + esc(r.error) + '</div>'; return; }
   ARCHIVES = r.data.items;
   window._types = r.data.types;
+  window._templates = r.data.templates || [];
+  window._ledgerDrugs = r.data.drugs || [];
   if (!ARCHIVES.length) {
-    V('archiveList').innerHTML = '<div class="center-empty">还没有启用任何业务档案</div>';
-    V('archiveDetail').innerHTML = '<div class="center-empty mid">新建档案后，在这里录入和查看记录</div>';
-    return;
+    V('archiveList').innerHTML = '<div class="center-empty">还没有建立任何药品台账</div>';
+    V('archiveDetail').innerHTML = '<div class="center-empty mid">新建台账后，在这里按药品登记</div>';
+    return ARCHIVES;
   }
   V('archiveList').innerHTML = ARCHIVES.map((a, i) =>
     '<div class="table-item" id="arc' + i + '" onclick="selectArchive(' + i + ')">'
-    + '<div style="flex:1"><b>' + esc(a.name) + '</b><div class="hint">' + a.count + ' 条记录</div></div>'
+    + '<div style="flex:1"><b>' + esc(a.name) + '</b><div class="hint">'
+    + a.count + ' 条记录 · ' + a.drug_count + ' 种药品</div></div>'
     + '<button class="link danger" onclick="event.stopPropagation();dropArchive(' + i + ')">删除</button>'
     + '</div>').join('');
   if (CUR_ARCHIVE) {
@@ -252,6 +281,7 @@ async function loadArchives() {
   } else {
     selectArchive(0);
   }
+  return ARCHIVES;
 }
 
 async function selectArchive(i) {
@@ -261,36 +291,46 @@ async function selectArchive(i) {
   const r = await api('/api/archives/' + CUR_ARCHIVE.table + '/records');
   if (!r.ok) { V('archiveDetail').innerHTML = '<div class="center-empty">' + esc(r.error) + '</div>'; return; }
   CUR_ARCHIVE = r.data.meta;
+  logSQL(r.data.sql);
   const rows = r.data.rows || [];
   window._records = rows;
   const fields = CUR_ARCHIVE.fields;
   let html = '<div class="toolbar" style="margin-bottom:14px;justify-content:flex-end">'
-    + '<button class="btn-line" onclick="openRecordForm()">＋ 录入记录</button></div>';
+    + '<button class="btn-line" onclick="openRecordForm()">＋ 按药品登记</button></div>';
   if (!rows.length) {
-    html += '<div class="center-empty">这个档案还没有记录，点「录入记录」添加第一条</div>';
+    html += '<div class="center-empty">这个台账还没有登记记录，点「按药品登记」选一种药开始</div>';
   } else {
-    html += '<div class="table-wrap"><table><thead><tr>';
+    html += '<div class="table-wrap"><table><thead><tr><th>药品</th>';
     fields.forEach(f => { html += '<th>' + esc(f.label) + '</th>'; });
-    html += '<th>录入时间</th></tr></thead><tbody>';
+    html += '<th>登记时间</th></tr></thead><tbody>';
     rows.forEach(r => {
-      html += '<tr>';
+      html += '<tr><td>' + esc(r.__drug)
+        + (r.__spec ? ' <span class="tag plain">' + esc(r.__spec) + '</span>' : '') + '</td>';
       fields.forEach(f => { html += '<td>' + esc(r[f.key]) + '</td>'; });
       html += '<td>' + esc(r.created_at) + '</td></tr>';
     });
-    html += '</tbody></table></div><div class="hint" style="margin-top:8px">共 ' + rows.length + ' 条</div>';
+    html += '</tbody></table></div><div class="hint" style="margin-top:8px">最近 '
+      + rows.length + ' 条</div>';
   }
   V('archiveDetail').innerHTML = html;
 }
 
 function openArchiveForm() {
-  const types = window._types || [];
-  const opts = types.map(t => '<option value="' + t.key + '">' + t.label + '</option>').join('');
+  const tpls = window._templates || [];
   const body = ''
-    + '<label class="field"><span>档案名称</span><input id="aName" type="text" placeholder="如 供应商档案"></label>'
-    + '<div class="hint" style="margin-bottom:6px">需要记录哪些信息？</div>'
+    + '<div class="hint" style="margin-bottom:4px">从药房常用的四类登记里选一个，字段自动填好，也可以自己定义</div>'
+    + '<div class="tpl-pick" id="tplPick">'
+    + tpls.map((t, i) => '<button type="button" class="tpl" data-i="' + i
+        + '" onclick="useTemplate(' + i + ')"><b>' + esc(t.name) + '</b><span>'
+        + esc(t.note) + '</span></button>').join('')
+    + '<button type="button" class="tpl" data-i="-1" onclick="useTemplate(-1)">'
+    + '<b>自定义台账</b><span>自己定名称和字段</span></button>'
+    + '</div>'
+    + '<label class="field"><span>台账名称</span><input id="aName" type="text" placeholder="如 药品不良反应登记"></label>'
+    + '<div class="hint" style="margin-bottom:6px">记录哪些信息？</div>'
     + '<div id="fieldRows"></div>'
     + '<button class="ghost small" onclick="addFieldRow()">＋ 添加字段</button>';
-  openModal('新建业务档案', body, async () => {
+  openModal('新建药品台账', body, async () => {
     const rows = [...document.querySelectorAll('#fieldRows .field-row')];
     const fields = rows.map(r => ({
       label: r.querySelector('.fx-label').value,
@@ -303,39 +343,63 @@ function openArchiveForm() {
     closeModal();
     loadArchives();
   });
-  // 默认给 3 个字段行
-  V('fieldRows').innerHTML = '';
-  for (let i = 0; i < 3; i++) addFieldRow();
+  useTemplate(0);
 }
 
-function addFieldRow() {
+/* 选中模板后把名称与字段一次性填进表单 */
+function useTemplate(i) {
+  document.querySelectorAll('#tplPick .tpl').forEach(el => el.classList.remove('on'));
+  const btn = document.querySelector('#tplPick .tpl[data-i="' + i + '"]');
+  if (btn) btn.classList.add('on');
+  V('fieldRows').innerHTML = '';
+  if (i < 0) {
+    V('aName').value = '';
+    for (let k = 0; k < 3; k++) addFieldRow();
+    return;
+  }
+  const t = (window._templates || [])[i];
+  if (!t) return;
+  V('aName').value = t.name;
+  t.fields.forEach(f => addFieldRow(f));
+}
+
+function addFieldRow(v) {
   const box = V('fieldRows');
   if (box.children.length >= 8) { alert('最多 8 个字段'); return; }
   const types = window._types || [];
   const opts = types.map(t => '<option value="' + t.key + '">' + t.label + '</option>').join('');
   const div = document.createElement('div');
   div.className = 'field-row';
-  div.innerHTML = '<input class="fx-label" type="text" placeholder="字段名称，如 供应商名称">'
+  div.innerHTML = '<input class="fx-label" type="text" placeholder="字段名称，如 反应表现">'
     + '<select class="fx-type">' + opts + '</select>'
     + '<label class="check"><input class="fx-req" type="checkbox"> 必填</label>'
     + '<button class="close" onclick="this.parentNode.remove()">×</button>';
   box.appendChild(div);
+  if (v) {
+    div.querySelector('.fx-label').value = v.label || '';
+    div.querySelector('.fx-type').value = v.type || 'text';
+    div.querySelector('.fx-req').checked = !!v.required;
+  }
 }
 
 async function dropArchive(i) {
   const a = ARCHIVES[i];
-  if (!confirm('删除档案「' + a.name + '」后，其中的 ' + a.count + ' 条记录将一并删除，确定吗？')) return;
+  if (!confirm('删除台账「' + a.name + '」后，其中的 ' + a.count + ' 条记录将一并删除，确定吗？')) return;
   const r = await postJSON('/api/archives/' + a.table + '/remove', {force: true});
   if (!r.ok) { alert(r.error); return; }
   logSQL(r.data.sql);
   CUR_ARCHIVE = null;
-  V('archiveDetail').innerHTML = '<div class="center-empty mid">新建档案后，在这里录入和查看记录</div>';
+  V('archiveDetail').innerHTML = '<div class="center-empty mid">新建台账后，在这里按药品登记</div>';
   loadArchives();
 }
 
 function openRecordForm() {
   const fields = CUR_ARCHIVE.fields;
-  const body = fields.map(f => {
+  let body = '<div class="form-2">'
+    + '<label class="field"><span>搜索药品</span><input id="drugQ" type="text" placeholder="输入药名筛选" oninput="filterDrugOpts()"></label>'
+    + '<label class="field"><span>药品 *</span><select id="rDrug"></select></label>'
+    + '</div>';
+  body += fields.map(f => {
     let input;
     if (f.type.startsWith('DATE')) {
       input = '<input data-k="' + f.key + '" type="date">';
@@ -346,25 +410,65 @@ function openRecordForm() {
     }
     return '<label class="field"><span>' + esc(f.label) + (f.required ? ' *' : '') + '</span>' + input + '</label>';
   }).join('');
-  openModal('录入记录 · ' + CUR_ARCHIVE.name, body, async () => {
+  openModal('登记台账 · ' + CUR_ARCHIVE.name, body, async () => {
     const values = {};
     document.querySelectorAll('#modalBody [data-k]').forEach(el => { values[el.dataset.k] = el.value; });
-    const r = await postJSON('/api/archives/' + CUR_ARCHIVE.table + '/records', {values: values});
+    const r = await postJSON('/api/archives/' + CUR_ARCHIVE.table + '/records',
+      {values: values, drug_id: V('rDrug').value});
     if (!r.ok) { alert(r.error); return; }
     logSQL(r.data.sql);
     closeModal();
+    toast('drugMsg', r.data.message);
     selectArchive(ARCHIVES.findIndex(a => a.table === CUR_ARCHIVE.table));
   });
+  filterDrugOpts();
+}
+
+/* 500 种药品不便一次看完，输入药名即时收窄下拉 */
+function filterDrugOpts() {
+  const kw = (V('drugQ').value || '').trim().toLowerCase();
+  const drugs = window._ledgerDrugs || [];
+  const list = kw
+    ? drugs.filter(d => (d.name || '').toLowerCase().includes(kw)
+        || (d.spec || '').toLowerCase().includes(kw))
+    : drugs;
+  V('rDrug').innerHTML = list.length
+    ? list.map(d => '<option value="' + d.id + '">' + esc(d.name)
+        + (d.spec ? ' · ' + esc(d.spec) : '') + '</option>').join('')
+    : '<option value="">没有匹配的药品</option>';
 }
 
 /* ---------------- 报表 ---------------- */
+const REPORT_BOX = {
+  doctor_revenue: 'reportA', drug_consume: 'reportC',
+  drug_ledger: 'reportD', patient_flow: 'reportB'
+};
+
 async function loadReport(name) {
-  const box = name === 'doctor_revenue' ? V('reportA') : V('reportB');
+  const box = V(REPORT_BOX[name]);
   box.innerHTML = '<div class="center-empty">生成中…</div>';
-  const payload = name === 'doctor_revenue' ? {name} : {name, patient_id: +V('pid').value};
+  const payload = {name};
+  if (name === 'patient_flow') payload.patient_id = +V('pid').value;
+  if (name === 'drug_ledger') payload.table = V('ledgerSel').value;
   const r = await postJSON('/api/report', payload);
   if (!r.ok) { box.innerHTML = '<div class="center-empty">' + esc(r.error) + '</div>'; return; }
+  if (r.data.empty) {
+    box.innerHTML = '<div class="center-empty">还没有建立药品台账，先到「药品台账」页签建一张</div>';
+    return;
+  }
   box.innerHTML = renderTable(r.data.columns, r.data.rows, 20);
+}
+
+/* 台账下拉跟随台账页签的实际情况，新建后回来即可看到 */
+async function fillLedgerSelect() {
+  const sel = V('ledgerSel');
+  const r = await api('/api/archives');
+  const items = (r.ok && r.data.items) || [];
+  sel.innerHTML = items.length
+    ? items.map(a => '<option value="' + a.table + '">' + esc(a.name)
+        + '（' + a.count + ' 条）</option>').join('')
+    : '<option value="">还没有台账</option>';
+  loadReport('drug_ledger');
 }
 
 loadDrugs();
@@ -377,5 +481,10 @@ if (tabParam) {
   if (btn) switchTab(tabParam, btn);
 }
 if (params.get('new') === 'drug') setTimeout(() => openDrugForm(), 200);
+if (params.get('new') === 'ledger') (async () => {
+  switchTab('archive', document.querySelector('.tab[data-tab="archive"]'));
+  await loadArchives();
+  openArchiveForm();
+})();
 </script>
 {% endblock %}

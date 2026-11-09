@@ -72,12 +72,12 @@
           <tr><th style="width:70px">编号</th><th style="width:140px">要求</th><th style="width:210px">在系统中对应</th><th>说明</th></tr>
         </thead>
         <tbody>
-          <tr><td>基本 1</td><td>创建数据表</td><td>业务档案 → 新建档案</td><td>填写档案名称与字段，系统生成数据表</td></tr>
-          <tr><td>基本 2</td><td>插入数据</td><td>新药入库 / 档案录入</td><td>库房到货登记；供应商等档案记录录入</td></tr>
+          <tr><td>基本 1</td><td>创建数据表</td><td>药品台账 → 新建台账</td><td>选四类药房登记之一，生成带 drug_id 外键的数据表</td></tr>
+          <tr><td>基本 2</td><td>插入数据</td><td>新药入库 / 台账登记</td><td>库房到货登记；按药品登记不良反应、盘点、调价</td></tr>
           <tr><td>基本 3</td><td>修改数据</td><td>药品目录 → 编辑</td><td>调价、盘点库存、启用或停用品种</td></tr>
-          <tr><td>基本 4</td><td>删除数据</td><td>药品目录 → 删除</td><td>已开过处方的品种会被拦下，改为停用</td></tr>
-          <tr><td>基本 5</td><td>删除数据表</td><td>业务档案 → 删除档案</td><td>二次确认后连同记录一并清理</td></tr>
-          <tr><td>基本 6</td><td>跨数据表操作</td><td>运营报表</td><td>5 表 JOIN 开药排行；7 表 JOIN 就诊流水</td></tr>
+          <tr><td>基本 4</td><td>删除数据</td><td>药品目录 → 删除</td><td>已开处方或在台账登记过的品种会被拦下，改为停用</td></tr>
+          <tr><td>基本 5</td><td>删除数据表</td><td>药品台账 → 删除台账</td><td>二次确认后连同记录一并清理</td></tr>
+          <tr><td>基本 6</td><td>跨数据表操作</td><td>运营报表</td><td>5/6/7 表 JOIN 处方链路；台账 JOIN 药品目录</td></tr>
           <tr><td>额外 1</td><td>事务支持</td><td>患者挂号</td><td>SELECT…FOR UPDATE + INSERT + UPDATE 同事务</td></tr>
           <tr><td>额外 2</td><td>索引支持</td><td>索引对比</td><td>走索引与全表扫描的 EXPLAIN 计划、耗时对比</td></tr>
           <tr><td>额外 3</td><td>多用户并发</td><td>挂号页 → 并发抢号</td><td>10 线程同抢一个号源，验证不超卖并记录耗时</td></tr>

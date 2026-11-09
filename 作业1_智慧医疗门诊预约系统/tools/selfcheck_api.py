@@ -73,30 +73,42 @@ st, r = call("POST", "/api/pharmacy/drugs/1/remove")
 check("   已开方药品禁删", not r.get("ok"), str(r.get("error", ""))[:52])
 
 print()
-print("C. 业务档案（建表 / 删表）")
+print("C. 药品台账（建表 / 按药登记）")
 print("=" * 72)
-arch_name = "供应商档案" + stamp
-st, r = call("POST", "/api/archives", {"name": arch_name, "fields": [
-    {"label": "供应商名称", "type": "text", "required": True},
-    {"label": "联系人", "type": "text"},
-    {"label": "结算金额", "type": "money"},
-    {"label": "签约日期", "type": "date"}]})
+ledger_name = "药品不良反应登记" + stamp
+st, r = call("POST", "/api/archives", {"name": ledger_name, "fields": [
+    {"label": "反应表现", "type": "long", "required": True},
+    {"label": "发生日期", "type": "date", "required": True},
+    {"label": "严重程度", "type": "text"},
+    {"label": "处理措施", "type": "long"}]})
 tbl = (r.get("data") or {}).get("table")
-check("5) 新建档案（CREATE TABLE）", r.get("ok") and tbl, "表=%s" % tbl)
+create_sql = str((r.get("data") or {}).get("sql") or "")
+check("5) 新建台账（CREATE TABLE）", r.get("ok") and tbl, "表=%s" % tbl)
+check("   自动挂 drug_id 外键",
+      "drug_id" in create_sql and "REFERENCES drug" in create_sql,
+      "FOREIGN KEY → drug(drug_id)")
 
 st, r = call("GET", "/api/archives")
 names = [x["name"] for x in (r.get("data") or {}).get("items", [])]
-check("   档案出现在列表", arch_name in names, "共 %d 个档案" % len(names))
+check("   台账出现在列表", ledger_name in names, "共 %d 个台账" % len(names))
 
 st, r = call("POST", "/api/archives/%s/records" % tbl,
-             {"values": {"f1": "华东医药", "f2": "张经理", "f3": "128000.00", "f4": "2026-03-01"}})
-check("   录入档案记录（INSERT）", r.get("ok"), r.get("data", {}).get("message", ""))
+             {"values": {"f1": "皮疹", "f2": "2026-01-01"}})
+check("   未选药时被拦截", not r.get("ok"), str(r.get("error", ""))[:44])
 
-st, r = call("POST", "/api/archives/%s/remove" % tbl, {})
-check("   删表前二次确认", (not r.get("ok")) and r.get("need_confirm"), str(r.get("error"))[:40])
+st, r = call("POST", "/api/pharmacy/drugs",
+             {"name": "自查测试药" + stamp, "spec": "1mg*1片", "unit": "盒", "maker": "自查药厂",
+              "price": 1.0, "stock": 10, "rx": True})
+test_drug = (r.get("data") or {}).get("id")
+check("   新药入库备用", r.get("ok") and test_drug, "id=%s" % test_drug)
 
-st, r = call("POST", "/api/archives/%s/remove" % tbl, {"force": True})
-check("6) 删除档案（DROP TABLE）", r.get("ok"), str(r.get("data", {}).get("sql"))[:40])
+st, r = call("POST", "/api/archives/%s/records" % tbl,
+             {"drug_id": test_drug,
+              "values": {"f1": "自查反应", "f2": "2026-01-01", "f3": "轻度", "f4": "观察"}})
+check("6) 按药品登记（INSERT）", r.get("ok"), r.get("data", {}).get("message", ""))
+
+st, r = call("POST", "/api/pharmacy/drugs/%s/remove" % test_drug)
+check("   台账引用的药品禁删", not r.get("ok"), str(r.get("error", ""))[:52])
 
 print()
 print("=" * 72)
@@ -105,9 +117,26 @@ print("=" * 72)
 st, r = call("POST", "/api/report", {"name": "doctor_revenue"})
 rows = (r.get("data") or {}).get("rows") or []
 check("7) 5 表 JOIN 报表", r.get("ok") and len(rows) > 0, "%d 行，列=%s" % (len(rows), list(rows[0].keys())[:4] if rows else []))
+
+st, r = call("POST", "/api/report", {"name": "drug_consume"})
+rows3 = (r.get("data") or {}).get("rows") or []
+check("   6 表 JOIN 药品消耗排行", r.get("ok") and len(rows3) > 0, "%d 行" % len(rows3))
+
+st, r = call("POST", "/api/report", {"name": "drug_ledger", "table": tbl})
+rows4 = (r.get("data") or {}).get("rows") or []
+check("   台账 JOIN 药品目录", r.get("ok") and len(rows4) > 0,
+      "%d 行，含药品列=%s" % (len(rows4), "药品" in ((r.get("data") or {}).get("columns") or [])))
+
 st, r = call("POST", "/api/report", {"name": "patient_flow", "patient_id": 7})
 rows2 = (r.get("data") or {}).get("rows") or []
 check("8) 7 表 JOIN 报表", r.get("ok") and len(rows2) > 0, "%d 行" % len(rows2))
+
+st, r = call("POST", "/api/archives/%s/remove" % tbl, {})
+check("   删表前二次确认", (not r.get("ok")) and r.get("need_confirm"), str(r.get("error"))[:40])
+st, r = call("POST", "/api/archives/%s/remove" % tbl, {"force": True})
+check("   删除台账（DROP TABLE）", r.get("ok"), str(r.get("data", {}).get("sql"))[:40])
+st, r = call("POST", "/api/pharmacy/drugs/%s/remove" % test_drug)
+check("   清理测试药", r.get("ok"), r.get("data", {}).get("message") or r.get("error", ""))
 
 print()
 print("=" * 72)

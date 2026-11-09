@@ -186,11 +186,11 @@ def api_concurrency_demo():
 # 标识符无法参数化，统一走正则白名单校验；值全部 %s 参数化传入。
 # =====================================================================
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
-_ARCHIVE_PREFIX = "archive_"
+_ARCHIVE_PREFIX = "ledger_"
 CORE_TABLES = {"department", "doctor", "patient", "schedule", "appointment",
                "visit", "prescription", "drug", "prescription_item", "payment"}
 
-# 业务档案可选的字段类型：key → (界面文案, 物理类型)
+# 药品台账可选的字段类型：key → (界面文案, 物理类型)
 ARCHIVE_TYPES = {
     "text":  ("文本", "VARCHAR(100)"),
     "long":  ("长文本", "VARCHAR(255)"),
@@ -198,6 +198,42 @@ ARCHIVE_TYPES = {
     "money": ("金额", "DECIMAL(10,2)"),
     "date":  ("日期", "DATE"),
 }
+
+# 台账模板：药房里真实在用的四类登记，建表时一键带出字段
+LEDGER_TEMPLATES = [
+    {"key": "adr", "name": "药品不良反应登记",
+     "note": "患者用药后出现的不良反应与处理",
+     "fields": [
+         {"label": "反应表现", "type": "long", "required": True},
+         {"label": "发生日期", "type": "date", "required": True},
+         {"label": "严重程度", "type": "text"},
+         {"label": "处理措施", "type": "long"},
+     ]},
+    {"key": "stock", "name": "药品库存盘点",
+     "note": "账面数量与实盘数量对照，核对损耗",
+     "fields": [
+         {"label": "盘点日期", "type": "date", "required": True},
+         {"label": "账面数量", "type": "int", "required": True},
+         {"label": "实盘数量", "type": "int", "required": True},
+         {"label": "盘点人", "type": "text"},
+     ]},
+    {"key": "price", "name": "药品调价记录",
+     "note": "每次调价留痕，方便追溯价格变动",
+     "fields": [
+         {"label": "调整日期", "type": "date", "required": True},
+         {"label": "原单价", "type": "money", "required": True},
+         {"label": "新单价", "type": "money", "required": True},
+         {"label": "调整原因", "type": "text"},
+     ]},
+    {"key": "cold", "name": "冷链温控记录",
+     "note": "需冷藏药品的每日温度登记",
+     "fields": [
+         {"label": "记录日期", "type": "date", "required": True},
+         {"label": "温度（℃）", "type": "money", "required": True},
+         {"label": "记录时段", "type": "text"},
+         {"label": "是否超标", "type": "text"},
+     ]},
+]
 
 
 def _check_ident(name):
@@ -379,6 +415,16 @@ def api_drug_delete(drug_id):
             if used:
                 return _err("「%s」已产生 %d 条处方记录，不能删除。"
                             "如不再使用，请在编辑中把状态改为停用。" % (row["drug_name"], used))
+            # 台账通过外键指向 drug，登记过的药品同样不能删（这里提前给出可读提示）
+            ledgers = []
+            for t in _ledger_tables(cur):
+                cur.execute("SELECT COUNT(*) AS c FROM `%s` WHERE drug_id = %%s" % t, (drug_id,))
+                if cur.fetchone()["c"]:
+                    ledgers.append(_archive_meta(cur, t)["name"])
+            if ledgers:
+                return _err("「%s」已在台账「%s」中登记，不能删除。"
+                            "如不再使用，请在编辑中把状态改为停用。"
+                            % (row["drug_name"], "、".join(ledgers)))
             cur.execute("DELETE FROM drug WHERE drug_id = %s", (drug_id,))
         return _ok({"message": "已从药品目录删除：%s" % row["drug_name"],
                     "sql": "DELETE FROM drug WHERE drug_id = %s"})
@@ -387,19 +433,20 @@ def api_drug_delete(drug_id):
 
 
 # ---------------------------------------------------------------------
-# 业务档案：新建档案（CREATE TABLE）/ 录入记录（INSERT）/ 删除档案（DROP TABLE）
+# 药品台账：新建台账（CREATE TABLE + 外键）/ 录入记录（INSERT）/ 删除台账（DROP TABLE）
+# 每张台账都带 drug_id 外键指向药品目录，录入时先选药，台账永远是药品的子表。
 # ---------------------------------------------------------------------
 def _archive_meta(cur, table):
-    """读取档案的业务定义：档案名与字段名都来自数据表的注释。"""
+    """读取台账的业务定义：台账名与字段名都来自数据表的注释。"""
     _check_ident(table)
     if not table.startswith(_ARCHIVE_PREFIX):
-        raise BizError("该档案不存在")
+        raise BizError("该台账不存在")
     cur.execute(
         "SELECT table_comment FROM information_schema.tables "
         "WHERE table_schema = DATABASE() AND table_name = %s", (table,))
     head = cur.fetchone()
     if not head:
-        raise BizError("该档案不存在")
+        raise BizError("该台账不存在")
     cur.execute(
         "SELECT column_name, column_type, column_comment, is_nullable "
         "FROM information_schema.columns "
@@ -408,7 +455,7 @@ def _archive_meta(cur, table):
     fields = []
     for r in cur.fetchall():
         name = r.get("COLUMN_NAME") or r.get("column_name")
-        if name in ("id", "created_at"):
+        if name in ("id", "drug_id", "created_at"):
             continue
         fields.append({
             "key": name,
@@ -420,23 +467,33 @@ def _archive_meta(cur, table):
             "fields": fields}
 
 
+def _ledger_tables(cur):
+    cur.execute(
+        "SELECT table_name FROM information_schema.tables "
+        "WHERE table_schema = DATABASE() AND table_name LIKE 'ledger\\_%' "
+        "ORDER BY create_time DESC")
+    return [r.get("TABLE_NAME") or r.get("table_name") for r in cur.fetchall()]
+
+
 @bp.route("/api/archives")
 def api_archives():
     try:
         with get_cursor() as cur:
-            cur.execute(
-                "SELECT table_name, table_comment FROM information_schema.tables "
-                "WHERE table_schema = DATABASE() AND table_name LIKE 'archive\\_%' "
-                "ORDER BY create_time DESC")
             items = []
-            for r in cur.fetchall():
-                t = r.get("TABLE_NAME") or r.get("table_name")
+            for t in _ledger_tables(cur):
                 meta = _archive_meta(cur, t)
-                cur.execute("SELECT COUNT(*) AS c FROM `%s`" % t)
-                meta["count"] = cur.fetchone()["c"]
+                cur.execute("SELECT COUNT(*) AS c, COUNT(DISTINCT drug_id) AS d "
+                            "FROM `%s`" % t)
+                row = cur.fetchone()
+                meta["count"] = row["c"]
+                meta["drug_count"] = row["d"]
                 items.append(meta)
-        return _ok({"items": items, "types": [
-            {"key": k, "label": v[0]} for k, v in ARCHIVE_TYPES.items()]})
+            # 台账录入时只能从药品目录里选，这里一次性把候选带过去
+            cur.execute("SELECT drug_id AS id, drug_name AS name, spec, unit "
+                        "FROM drug WHERE status = 1 ORDER BY drug_name")
+            drugs = cur.fetchall()
+        return _ok({"items": items, "drugs": drugs, "templates": LEDGER_TEMPLATES,
+                    "types": [{"key": k, "label": v[0]} for k, v in ARCHIVE_TYPES.items()]})
     except BizError as e:
         return _err(str(e))
     except pymysql.MySQLError as e:
@@ -448,14 +505,14 @@ def api_archive_create():
     body = request.get_json(silent=True) or {}
     name = (body.get("name") or "").strip()
     if not name:
-        return _err("请填写档案名称")
+        return _err("请填写台账名称")
     if len(name) > 30:
-        return _err("档案名称不能超过 30 字")
+        return _err("台账名称不能超过 30 字")
     raw_fields = body.get("fields") or []
     if not 1 <= len(raw_fields) <= 8:
         return _err("请设置 1~8 个字段")
 
-    cols, labels, seen = [], [], set()
+    cols, seen = [], set()
     for i, f in enumerate(raw_fields, start=1):
         label = (f.get("label") or "").strip()
         if not label:
@@ -470,22 +527,28 @@ def api_archive_create():
             return _err("字段「%s」的类型不支持" % label)
         cols.append("f%d %s%s COMMENT '%s'" % (
             i, t[1], " NOT NULL" if f.get("required") else "", label))
-        labels.append(label)
 
     table = _ARCHIVE_PREFIX + uuid.uuid4().hex[:10]
-    sql = ("CREATE TABLE `%s` (id INT AUTO_INCREMENT PRIMARY KEY, %s, "
-           "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP) "
-           "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='%s'"
-           % (table, ", ".join(cols), name))
+    # drug_id 是台账与药品目录的关联列，建表时自动带上并建外键，
+    # 台账因此永远是 drug 的子表：录入必须先选药，药品被引用时也删不掉。
+    sql = ("CREATE TABLE `%s` (\n"
+           "  id INT AUTO_INCREMENT PRIMARY KEY,\n"
+           "  drug_id INT NOT NULL COMMENT '药品ID',\n"
+           "  %s,\n"
+           "  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,\n"
+           "  KEY `idx_%s_drug` (drug_id),\n"
+           "  CONSTRAINT `fk_%s_drug` FOREIGN KEY (drug_id) REFERENCES drug (drug_id)\n"
+           ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='%s'"
+           % (table, ",\n  ".join(cols), table, table, name))
     try:
         with get_cursor(commit=True) as cur:
             cur.execute(
                 "SELECT 1 FROM information_schema.tables "
                 "WHERE table_schema = DATABASE() AND table_comment = %s LIMIT 1", (name,))
             if cur.fetchone():
-                return _err("已存在同名业务档案：%s" % name)
+                return _err("已存在同名药品台账：%s" % name)
             cur.execute(sql)
-        return _ok({"table": table, "name": name, "message": "业务档案「%s」已启用" % name,
+        return _ok({"table": table, "name": name, "message": "药品台账「%s」已启用" % name,
                     "sql": sql})
     except pymysql.MySQLError as e:
         return _err(_friendly(e))
@@ -496,9 +559,16 @@ def api_archive_records(table):
     try:
         with get_cursor() as cur:
             meta = _archive_meta(cur, table)
-            cur.execute("SELECT * FROM `%s` ORDER BY id DESC LIMIT 50" % table)
+            # 台账只存 drug_id，界面要显示药名，所以这里 JOIN 药品目录
+            cur.execute(
+                "SELECT l.*, g.drug_name AS `__drug`, g.spec AS `__spec` "
+                "FROM `%s` l JOIN drug g ON g.drug_id = l.drug_id "
+                "ORDER BY l.id DESC LIMIT 50" % table)
             rows = [_fmt_row(r) for r in cur.fetchall()]
-        return _ok({"meta": meta, "rows": rows})
+        return _ok({"meta": meta, "rows": rows,
+                    "sql": "SELECT l.*, g.drug_name, g.spec FROM `%s` l "
+                           "JOIN drug g ON g.drug_id = l.drug_id "
+                           "ORDER BY l.id DESC LIMIT 50" % table})
     except BizError as e:
         return _err(str(e))
     except pymysql.MySQLError as e:
@@ -512,7 +582,15 @@ def api_archive_insert(table):
     try:
         with get_cursor(commit=True) as cur:
             meta = _archive_meta(cur, table)
-            keys, args = [], []
+            try:
+                drug_id = int(body.get("drug_id"))
+            except (TypeError, ValueError):
+                return _err("请先选择这条记录对应的药品")
+            cur.execute("SELECT drug_name FROM drug WHERE drug_id = %s", (drug_id,))
+            drug = cur.fetchone()
+            if not drug:
+                return _err("选择的药品已不存在，请刷新后重试")
+            keys, args = ["drug_id"], [drug_id]
             for f in meta["fields"]:
                 v = values.get(f["key"])
                 if isinstance(v, str):
@@ -527,7 +605,7 @@ def api_archive_insert(table):
                    % (table, ", ".join("`%s`" % k for k in keys),
                       ", ".join(["%s"] * len(keys))))
             cur.execute(sql, args)
-        return _ok({"message": "已录入 1 条记录", "sql": sql})
+        return _ok({"message": "已为「%s」登记 1 条台账记录" % drug["drug_name"], "sql": sql})
     except BizError as e:
         return _err(str(e))
     except pymysql.MySQLError as e:
@@ -542,10 +620,10 @@ def api_archive_drop(table):
             cur.execute("SELECT COUNT(*) AS c FROM `%s`" % table)
             n = cur.fetchone()["c"]
             if n and not (request.get_json(silent=True) or {}).get("force"):
-                return _err("该档案下还有 %d 条记录，确认要连同记录一起删除吗？" % n,
+                return _err("该台账下还有 %d 条记录，确认要连同记录一起删除吗？" % n,
                             need_confirm=True, count=n)
             cur.execute("DROP TABLE `%s`" % table)
-        return _ok({"message": "业务档案「%s」已删除" % meta["name"],
+        return _ok({"message": "药品台账「%s」已删除" % meta["name"],
                     "sql": "DROP TABLE `%s`" % table})
     except BizError as e:
         return _err(str(e))
@@ -559,18 +637,49 @@ def ops_page():
 
 
 # =====================================================================
-# 跨数据表操作：两张固定 JOIN 报表（只读）
+# 跨数据表操作：四张只读 JOIN 报表，其中三张以药品为中心
 # =====================================================================
 REPORTS = {
     "doctor_revenue": {
         "name": "医生开药金额 Top10（5 表 JOIN）",
         "desc": "prescription_item → prescription → visit → doctor → department",
     },
+    "drug_consume": {
+        "name": "药品消耗排行（6 表 JOIN）",
+        "desc": "prescription_item → prescription → visit → doctor → department → drug",
+    },
+    "drug_ledger": {
+        "name": "药品台账总览（台账 JOIN 药品）",
+        "desc": "ledger_xxx → drug",
+    },
     "patient_flow": {
         "name": "患者完整就诊流水（7 表 JOIN）",
         "desc": "appointment → patient → schedule → doctor → department → visit → prescription_item → drug",
     },
 }
+
+
+def _report_drug_ledger(cur, table):
+    """台账里只存 drug_id，这里 JOIN 药品目录把编码翻译成药名，
+    并顺带统计本台账覆盖了多少种药。"""
+    tables = _ledger_tables(cur)
+    if not tables:
+        return [], [], True
+    table = table if table in tables else tables[0]
+    meta = _archive_meta(cur, table)
+    cols = ", ".join("l.`%s`" % f["key"] for f in meta["fields"])
+    cur.execute(
+        "SELECT g.drug_name AS 药品, g.spec AS 规格, g.manufacturer AS 生产厂家, "
+        "%s, l.created_at AS 录入时间 "
+        "FROM `%s` l JOIN drug g ON g.drug_id = l.drug_id "
+        "ORDER BY l.id DESC LIMIT 30" % (cols, table))
+    rows = [_fmt_row(r) for r in cur.fetchall()]
+    # 用业务字段名替换 f1/f2，界面直接可读
+    rename = {f["key"]: f["label"] for f in meta["fields"]}
+    fixed = []
+    for r in rows:
+        fixed.append({rename.get(k, k): v for k, v in r.items()})
+    return fixed, list(fixed[0].keys()) if fixed else [], False
 
 
 @bp.route("/api/report", methods=["POST"])
@@ -580,14 +689,23 @@ def api_report():
     if name not in REPORTS:
         return _err("未知报表")
     try:
+        empty = False
         if name == "doctor_revenue":
             rows = dao.report_doctor_revenue(10)
+        elif name == "drug_consume":
+            rows = dao.report_drug_consume(15)
+        elif name == "drug_ledger":
+            with get_cursor() as cur:
+                rows, cols, empty = _report_drug_ledger(cur, (body.get("table") or "").strip())
+            return _ok({"rows": rows, "columns": cols, "count": len(rows), "empty": empty})
         else:
             pid = int(body.get("patient_id") or 1)
             rows = dao.report_patient_flow(pid, 20)
         return _ok({"rows": [_fmt_row(r) for r in rows],
                     "columns": list(rows[0].keys()) if rows else [],
                     "count": len(rows)})
+    except BizError as e:
+        return _err(str(e))
     except pymysql.MySQLError as e:
         return _err(_friendly(e))
 
