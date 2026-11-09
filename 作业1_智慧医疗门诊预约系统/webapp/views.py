@@ -696,6 +696,6 @@ def api_perf():
         "param": param,
         "repeat": repeat,
         "without": {"plan": plan_without, "time": time_without, "sql": without_sql},
-        "with": {"plan": plan_with, "time": time_with, "sql": case["with_sql"]},
+        "with": {"plan": plan_with, "time": time_with, "sql": with_sql},
         "speedup": speedup,
     })

@@ -12,9 +12,9 @@
   <div class="topbar-inner">
     <div class="brand"><span class="logo">＋</span>{{ APP_TITLE }}</div>
     <nav class="topnav">
-      <a href="{{ url_for('main.dashboard') }}"  class="{{ 'active' if request.endpoint=='main.dashboard' }}">首页 · 要求对照</a>
+      <a href="{{ url_for('main.dashboard') }}"  class="{{ 'active' if request.endpoint=='main.dashboard' }}">数据概览</a>
       <a href="{{ url_for('main.ops_page') }}"     class="{{ 'active' if request.endpoint=='main.ops_page' }}">药房业务</a>
-      <a href="{{ url_for('main.register_page') }}" class="{{ 'active' if request.endpoint=='main.register_page' }}">挂号（事务·并发）</a>
+      <a href="{{ url_for('main.register_page') }}" class="{{ 'active' if request.endpoint=='main.register_page' }}">挂号</a>
       <a href="{{ url_for('main.perf_page') }}"    class="{{ 'active' if request.endpoint=='main.perf_page' }}">索引对比</a>
     </nav>
     <div class="conn-chip" title="浏览器→Flask(本机)→MySQL(Linux服务器)，数据实际存放在下面这台服务器上">

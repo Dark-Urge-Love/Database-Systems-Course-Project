@@ -1,111 +1,114 @@
 {% extends "base.html" %}
-{% block title %}课程要求对照 · {{ APP_TITLE }}{% endblock %}
+{% block title %}数据概览 · {{ APP_TITLE }}{% endblock %}
 
 {% block content %}
 <div class="page-head">
-  <h1>课程要求对照 <span class="tag">数据规模与功能入口</span></h1>
-  <p>课程要求逐条对应到功能入口；页面数字每次打开都实时查询服务器上的 MySQL。</p>
+  <h1>数据概览</h1>
+  <p>智慧医疗 · 社区门诊预约与处方管理系统　|　课程要求 6 项基本操作 + 3 项额外功能</p>
 </div>
 
 {% if not db_ok %}
-<div class="msg bad show">数据库连接失败：{{ db_err }}<br>请确认 Ubuntu 里 MySQL 已启动，且 <span class="mono">webapp/config.py</span> 里的 DB_HOST 是当前 Ubuntu 的 IP。</div>
+<div class="msg bad show">数据库未连接：{{ db_err }}　请确认 Ubuntu 中 MySQL 已启动。</div>
 {% endif %}
 
-<div class="grid grid-4">
-  <div class="card stat">
+<div class="metrics">
+  <div class="metric">
     <div class="label">数据总量</div>
-    <div class="value blue">{{ '{:,}'.format(total) }}</div>
-    <div class="sub">要求 ≥ 100,000 条 ✓</div>
+    <div class="value">{{ '{:,}'.format(total) }}</div>
+    <div class="sub">要求 ≥ 100,000 条</div>
   </div>
-  <div class="card stat">
-    <div class="label">数据表数量</div>
-    <div class="value teal">{{ rows|length }}</div>
-    <div class="sub">要求 ≥ 5 张 ✓</div>
+  <div class="metric">
+    <div class="label">数据表</div>
+    <div class="value">{{ rows|length }}</div>
+    <div class="sub">要求 ≥ 5 张</div>
   </div>
-  <div class="card stat">
-    <div class="label">数据库服务器</div>
-    <div class="value" style="font-size:19px">{{ conn.host }}:{{ conn.port }}</div>
-    <div class="sub">客户端与服务器独立 IP</div>
+  <div class="metric">
+    <div class="label">实体</div>
+    <div class="value">10</div>
+    <div class="sub">要求 5 ~ 10 个</div>
   </div>
-  <div class="card stat">
-    <div class="label">服务器主机名 / 版本</div>
-    <div class="value" style="font-size:19px">{{ conn.hostname or '—' }}</div>
-    <div class="sub">{{ (conn.version or '').split('-')[0] or '未连接' }}</div>
-  </div>
-</div>
-
-<div class="card" style="margin-top:16px">
-  <h2>课程要求 → 功能对照</h2>
-  <div class="table-wrap" style="max-height:none">
-    <table>
-      <thead>
-        <tr><th style="width:120px">课程要求</th><th style="width:180px">对应功能</th><th>实现方式</th><th style="width:90px">演示</th></tr>
-      </thead>
-      <tbody>
-        <tr><td><span class="tag">基本 1</span></td><td>创建数据表</td>
-            <td>药房业务 →「业务档案」→ 新建业务档案：填写档案名称与需要记录的信息（如供应商名称、结算金额），系统据此建立数据表</td>
-            <td><a href="/ops?tab=archive">去操作</a></td></tr>
-        <tr><td><span class="tag">基本 2</span></td><td>插入数据</td>
-            <td>库房新到一种药 →「新药入库」填写名称/规格/厂家/单价/库存；或在业务档案里「录入记录」（如登记一家供应商）</td>
-            <td><a href="/ops">去操作</a></td></tr>
-        <tr><td><span class="tag">基本 3</span></td><td>修改数据</td>
-            <td>药品调价或库存盘点 → 药品目录点「编辑」修改单价、库存、在用状态，保存后立即生效</td>
-            <td><a href="/ops">去操作</a></td></tr>
-        <tr><td><span class="tag">基本 4</span></td><td>删除数据</td>
-            <td>录入错误的品种 → 药品目录点「删除」；已开过处方的药品会被拦下并提示改为停用（业务规则）</td>
-            <td><a href="/ops">去操作</a></td></tr>
-        <tr><td><span class="tag">基本 5</span></td><td>删除数据表</td>
-            <td>某类档案不再使用 → 在「业务档案」里删除该档案，其记录一并清理（核心业务档案受保护）</td>
-            <td><a href="/ops?tab=archive">去操作</a></td></tr>
-        <tr><td><span class="tag">基本 6</span></td><td>跨数据表操作</td>
-            <td>「运营报表」：医生开药金额排行（5 表关联）、患者完整就诊流水（7 表关联）</td>
-            <td><a href="/ops?tab=report">去操作</a></td></tr>
-        <tr><td><span class="tag green">额外 1</span></td><td>事务支持</td>
-            <td>患者挂号：<span class="mono">SELECT…FOR UPDATE</span> + INSERT + UPDATE 三语句同事务，失败整体回滚</td>
-            <td><a href="/register">去演示</a></td></tr>
-        <tr><td><span class="tag green">额外 2</span></td><td>索引支持</td>
-            <td>索引性能对比：同一查询走索引 / <span class="mono">IGNORE INDEX</span> 全表扫描，对比 EXPLAIN 与耗时</td>
-            <td><a href="/perf">去演示</a></td></tr>
-        <tr><td><span class="tag green">额外 3</span></td><td>多用户并发 + 访问性能</td>
-            <td>挂号页「并发抢号」：10 线程同时抢一个号源，记录成功数/耗时；<span class="mono">tools/concurrency_test.py</span> 输出 TPS、P95 到 CSV</td>
-            <td><a href="/register">去演示</a></td></tr>
-        <tr><td><span class="tag amber">数据量</span></td><td>≥5 表 / ≥10 万条</td>
-            <td>10 张表、22 万+ 条初始数据（见下方各表行数）</td>
-            <td>本页</td></tr>
-        <tr><td><span class="tag amber">数据关系</span></td><td>多种数据关系</td>
-            <td>科室→医生→排班→预约（1-N）、预约↔就诊（1-1）、处方↔药品（N-M 经明细表）</td>
-            <td>见设计文档</td></tr>
-      </tbody>
-    </table>
+  <div class="metric">
+    <div class="label">实体联系</div>
+    <div class="value" style="font-size:17px;letter-spacing:0">1-1 · 1-N · N-M</div>
+    <div class="sub">三类齐全</div>
   </div>
 </div>
 
-<div class="grid grid-2-1" style="margin-top:16px">
-  <div class="card">
-    <h2>各表数据量 <span class="tag">{{ '{:,}'.format(total) }} 条</span></h2>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>业务数据</th><th>对应表</th><th class="num">行数</th></tr></thead>
-        <tbody>
-          {% for r in rows %}
-          <tr><td>{{ r.cn }}</td><td class="mono" style="color:var(--muted)">{{ r.table }}</td><td class="num">{{ '{:,}'.format(r.rows) }}</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
+<div class="sec">
+  <div class="sec-head">
+    <h2>课程要求 → 操作入口</h2>
+    <span class="aside">每一项都在页面上真实执行 SQL，不是演示数据</span>
+  </div>
+  <div class="req-list">
+    <div class="req-row">
+      <span class="k">基本 1–6</span>
+      <span class="v">创建表 · 插入 · 修改 · 删除 · 删除表 · 跨表查询<em>六项操作对应药房的日常业务</em></span>
+      <a class="go" href="/ops">药房业务 →</a>
+    </div>
+    <div class="req-row">
+      <span class="k">额外 1–2</span>
+      <span class="v">事务支持 · 索引支持<em>挂号扣号用 FOR UPDATE；索引用 IGNORE INDEX 做对照</em></span>
+      <span class="go"><a href="/register">挂号</a> · <a href="/perf">索引</a></span>
+    </div>
+    <div class="req-row">
+      <span class="k">额外 3</span>
+      <span class="v">多用户并发访问 + 性能记录<em>10 线程同时抢一个号源，统计成功数与耗时</em></span>
+      <a class="go" href="/register">去演示 →</a>
     </div>
   </div>
 
-  <div class="card">
-    <h2>连接详情</h2>
-    <dl class="kv">
-      <dt>服务器地址</dt><dd class="mono">{{ conn.host }}:{{ conn.port }}</dd>
-      <dt>登录账号</dt><dd class="mono">{{ conn.user }}@'%'</dd>
-      <dt>目标数据库</dt><dd class="mono">{{ conn.db }}</dd>
-      <dt>MySQL 版本</dt><dd>{{ conn.version or '—' }}</dd>
-      <dt>服务器主机名</dt><dd>{{ conn.hostname or '—' }}</dd>
-      <dt>数据目录</dt><dd class="mono" style="font-size:11px;word-break:break-all">{{ conn.datadir or '—' }}</dd>
-    </dl>
-    <p class="hint" style="margin-top:10px">主机名与数据目录（Linux 路径）可以证明数据确实存放在服务器上，不是本机文件。</p>
+  <details class="more">
+    <summary>展开要求逐条明细</summary>
+    <div class="inner table-wrap" style="max-height:none">
+      <table class="compact">
+        <thead>
+          <tr><th style="width:64px">编号</th><th style="width:140px">要求</th><th style="width:220px">在系统中对应</th><th>说明</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>基本 1</td><td>创建数据表</td><td>业务档案 → 新建档案</td><td>填写档案名称与字段，系统生成数据表</td></tr>
+          <tr><td>基本 2</td><td>插入数据</td><td>新药入库 / 档案录入</td><td>库房到货登记；供应商等档案记录录入</td></tr>
+          <tr><td>基本 3</td><td>修改数据</td><td>药品目录 → 编辑</td><td>调价、盘点库存、启用或停用品种</td></tr>
+          <tr><td>基本 4</td><td>删除数据</td><td>药品目录 → 删除</td><td>已开过处方的品种会被拦下，改为停用</td></tr>
+          <tr><td>基本 5</td><td>删除数据表</td><td>业务档案 → 删除档案</td><td>二次确认后连同记录一并清理</td></tr>
+          <tr><td>基本 6</td><td>跨数据表操作</td><td>运营报表</td><td>5 表 JOIN 开药排行；7 表 JOIN 就诊流水</td></tr>
+          <tr><td>额外 1</td><td>事务支持</td><td>患者挂号</td><td>SELECT…FOR UPDATE + INSERT + UPDATE 同事务</td></tr>
+          <tr><td>额外 2</td><td>索引支持</td><td>索引对比</td><td>走索引与全表扫描的 EXPLAIN 计划、耗时对比</td></tr>
+          <tr><td>额外 3</td><td>多用户并发</td><td>挂号页 → 并发抢号</td><td>10 线程同抢一个号源，验证不超卖并记录耗时</td></tr>
+          <tr><td>数据</td><td>≥5 表 / ≥10 万条</td><td>本页</td><td>10 表 22 万条，见下表</td></tr>
+          <tr><td>关系</td><td>1-1 / 1-N / N-M</td><td>设计文档</td><td>预约↔就诊、科室→医生→排班→预约、处方↔药品</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </details>
+</div>
+
+<div class="sec">
+  <div class="sec-head">
+    <h2>各表数据量</h2>
+    <span class="aside">实时 COUNT(*)</span>
+  </div>
+  <div class="table-list">
+    {% for r in rows %}
+    <div class="row">
+      <span class="n">{{ r.cn }}</span>
+      <span class="c">{{ '{:,}'.format(r.rows) }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="sec">
+  <div class="sec-head">
+    <h2>数据库连接</h2>
+    <span class="aside">客户端 Flask（本机）→ MySQL（Linux 服务器）</span>
+  </div>
+  <div class="meta-line">
+    <span>地址 <b>{{ conn.host }}:{{ conn.port }}</b></span>
+    <span>账号 <b>{{ conn.user }}</b></span>
+    <span>库 <b>{{ conn.db }}</b></span>
+    <span>版本 <b>{{ conn.version or '未连接' }}</b></span>
+    <span>主机 <b>{{ conn.hostname or '—' }}</b></span>
+    <span>数据目录 <b class="mono">{{ conn.datadir or '—' }}</b></span>
   </div>
 </div>
 {% endblock %}

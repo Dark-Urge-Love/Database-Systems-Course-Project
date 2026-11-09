@@ -3,41 +3,36 @@
 
 {% block content %}
 <div class="page-head">
-  <h1>索引性能对比 <span class="tag green">课程要求：索引支持</span></h1>
-  <p>对同一个查询分别在有索引和"绕过索引"的情况下执行，对比 <b>EXPLAIN 执行计划</b>（扫描类型 / 命中索引 / 预估扫描行数）
-     和 <b>实测耗时</b>。绕过索引用的是 MySQL 的 <span class="mono">IGNORE INDEX(...)</span>，
-     不破坏数据也不影响其他页面。</p>
+  <h1>索引性能对比</h1>
+  <p>同一条查询，一次走索引、一次用 IGNORE INDEX 绕过索引，对比执行计划与实测耗时。</p>
 </div>
 
 <div class="grid grid-sidebar">
+  <div class="card">
+    <h2>对比用例</h2>
+    <label class="field"><span>查询</span>
+      <select id="case">
+        {% for key, c in cases.items() %}
+        <option value="{{ key }}" data-param="{{ c.param }}">{{ c.title }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label class="field" id="wrapPatient"><span>患者编号</span>
+      <input type="number" id="patientId" value="1234" min="1" max="5000"></label>
+    <label class="field" id="wrapDoctor" style="display:none"><span>医生编号</span>
+      <input type="number" id="doctorId" value="5" min="1" max="300"></label>
+
+    <label class="field"><span>重复次数（取平均值）</span>
+      <input type="number" id="repeat" value="5" min="1" max="20"></label>
+
+    <button style="width:100%" onclick="runPerf()" id="btnRun">开始对比</button>
+    <div class="msg" id="perfMsg"></div>
+  </div>
+
   <div>
-    <div class="card">
-      <h2>对比用例</h2>
-      <label class="field"><span>选择查询</span>
-        <select id="case">
-          {% for key, c in cases.items() %}
-          <option value="{{ key }}" data-param="{{ c.param }}">{{ c.title }}</option>
-          {% endfor %}
-        </select>
-      </label>
-
-      <label class="field" id="wrapPatient"><span>patient_id</span>
-        <input type="number" id="patientId" value="1234" min="1" max="5000"></label>
-      <label class="field" id="wrapDoctor" style="display:none"><span>doctor_id</span>
-        <input type="number" id="doctorId" value="5" min="1" max="300"></label>
-
-      <label class="field"><span>重复执行次数（取平均，排除首次开销）</span>
-        <input type="number" id="repeat" value="5" min="1" max="20"></label>
-
-      <button style="width:100%" onclick="runPerf()" id="btnRun">开始对比测试</button>
-      <div class="msg" id="perfMsg"></div>
-    </div>
-
-  <div>
-    <div class="card">
-      <h2>对比结果</h2>
-      <div id="result"><div class="center-empty">点击左侧「开始对比测试」后显示结果</div></div>
-    </div>
+    <div class="sec-head"><h2>对比结果</h2><span class="aside">耗时越小越好</span></div>
+    <div id="result"><div class="center-empty">点击「开始对比」后显示结果</div></div>
   </div>
 </div>
 {% endblock %}
@@ -53,6 +48,8 @@ function syncParam() {
 }
 $('case').addEventListener('change', syncParam);
 syncParam();
+/* 带 ?auto=1 打开时自动跑一次，方便演示与截图 */
+if (location.search.indexOf('auto=1') >= 0) setTimeout(runPerf, 200);
 
 async function runPerf() {
   const key = $('case').value;
@@ -96,7 +93,7 @@ async function runPerf() {
     </div>
     <div class="spacer"></div>
     <dl class="kv">
-      <dt>平均耗时对比</dt><dd>${d.without.time.avg_ms} ms → <b style="color:var(--teal)">${d.with.time.avg_ms} ms</b>
+      <dt>平均耗时对比</dt><dd>${d.without.time.avg_ms} ms → <b style="color:var(--green)">${d.with.time.avg_ms} ms</b>
         ${d.speedup ? `（<b>快 ${d.speedup} 倍</b>）` : ''}</dd>
       <dt>最小值 / 最大值（无索引）</dt><dd>${d.without.time.min_ms} / ${d.without.time.max_ms} ms</dd>
       <dt>最小值 / 最大值（有索引）</dt><dd>${d.with.time.min_ms} / ${d.with.time.max_ms} ms</dd>
@@ -116,8 +113,7 @@ async function runPerf() {
     <h2 style="font-size:13px">实际执行的 SQL</h2>
     ${highlightSQL('-- 无索引（强制绕过索引）\n' + d.without.sql + '\n\n-- 有索引\n' + d.with.sql)}
     <p class="hint" style="margin-top:10px">
-      type 的含义：<b>ALL</b> = 全表扫描（最慢）；<b>ref</b> / <b>range</b> = 走索引检索；
-      rows 是优化器预估需要扫描的行数，这一列从几万降到个位数，就是索引的效果。
+      <b>ALL</b> 是全表扫描，<b>ref</b> 是走索引；rows 是优化器预估扫描行数，从几万降到个位数即索引生效。
     </p>`;
 }
 

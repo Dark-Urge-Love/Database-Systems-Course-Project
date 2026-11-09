@@ -173,7 +173,7 @@ python tools/check_conn.py --host 192.168.1.100 --user clinic --password Clinic@
 ## 完成后
 
 环境通了之后，剩下的工作就是纯代码了：
-1. **Flask 客户端**（要求对照页 + 药房采购工作台 + 挂号页 + 索引对比页）
+1. **Flask 客户端**（数据概览页 + 药房业务页 + 挂号页 + 索引对比页）
 2. **并发性能测试** `tools/concurrency_test.py`
 3. **项目报告文档**
 
