@@ -290,82 +290,132 @@ def api_prescribe():
 
 
 # =====================================================================
-# 基本操作台：建表 / 插入 / 修改 / 删除 / 删表 / join
+# 药房采购工作台：把课程要求的六项基本操作融合进一个连贯的业务剧本
+# ------------------------------------------------------------------
+# 剧本：某医药供应商向药房提交了一份药品报价单，采购员按流程处理——
+#   建报价登记表 → 录入报价并上架新药 → 按报价调价 → 滞销药品淘汰
+#   → 报价单完成使命后销毁临时表 → 管理层查看运营报表（跨表 JOIN）
+# 每一步都有真实的业务动机，同时一一对应课程要求：
+#   ① CREATE TABLE  ② INSERT  ③ UPDATE  ④ DELETE  ⑤ DROP TABLE  ⑥⑦ JOIN
 # =====================================================================
-OPS = {
+STEPS = {
     "create": {
-        "title": "① 建表 CREATE TABLE",
-        "desc": "创建一张药品归档表（结构与 drug 一致，另加归档时间与原因）",
+        "tag": "课程要求 ① CREATE TABLE",
+        "title": "收到供应商报价单，建立报价登记表",
+        "desc": "采购员收到「华润医药」提交的药品报价单。按采购制度，报价单需要先登记备案："
+                "为本次报价创建一张临时报价登记表 drug_quote，记录报价药品、价格、可供量与报价日期。",
         "sql": [
-            "DROP TABLE IF EXISTS drug_archive",
-            """CREATE TABLE drug_archive (
-                 archive_id    INT AUTO_INCREMENT PRIMARY KEY,
-                 drug_id       INT NOT NULL,
-                 drug_name     VARCHAR(100) NOT NULL,
-                 spec          VARCHAR(50),
-                 price         DECIMAL(8,2) NOT NULL,
-                 stock         INT NOT NULL,
-                 archive_time  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                 archive_reason VARCHAR(50)
-               ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='药品归档表（演示建表）'""",
+            "DROP TABLE IF EXISTS drug_quote",
+            """CREATE TABLE drug_quote (
+                 quote_id      INT AUTO_INCREMENT PRIMARY KEY COMMENT '报价流水号',
+                 drug_name     VARCHAR(100) NOT NULL COMMENT '药品名称',
+                 spec          VARCHAR(50)  NOT NULL COMMENT '规格',
+                 unit          VARCHAR(10)  COMMENT '单位',
+                 manufacturer  VARCHAR(100) COMMENT '生产厂家',
+                 quote_price   DECIMAL(8,2) NOT NULL COMMENT '报价单价(元)',
+                 supply_stock  INT NOT NULL DEFAULT 0 COMMENT '可供数量',
+                 is_new        TINYINT NOT NULL DEFAULT 0 COMMENT '1=新药推介 0=目录内品种调价',
+                 quote_date    DATE NOT NULL COMMENT '报价日期',
+                 quote_note    VARCHAR(100) COMMENT '备注'
+               ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='供应商报价登记表(临时,流程结束后销毁)'""",
         ],
-        "show": "SHOW COLUMNS FROM drug_archive",
+        "show": "SHOW FULL COLUMNS FROM drug_quote",
     },
     "insert": {
-        "title": "② 插入 INSERT",
-        "desc": "把库存少于 800 的药品批量归档写入 drug_archive",
+        "tag": "课程要求 ② INSERT（含跨表 INSERT…SELECT）",
+        "title": "录入报价明细，新药批量上架",
+        "desc": "把报价单的 8 条明细登记入表。其中 4 条是对目录内现有品种的调价，另外 4 条是新药推介——"
+                "经药师初审合格后，新药直接批量上架进入药品目录 drug（INSERT…SELECT…WHERE NOT EXISTS 防重复上架）。",
         "sql": [
-            "INSERT INTO drug_archive (drug_id, drug_name, spec, price, stock, archive_reason) "
-            "SELECT drug_id, drug_name, spec, price, stock, '低库存' "
-            "FROM drug WHERE stock < 800 ORDER BY drug_id LIMIT 20"
+            """INSERT INTO drug_quote
+               (drug_name, spec, unit, manufacturer, quote_price, supply_stock, is_new, quote_date, quote_note)
+               VALUES ('阿莫西林胶囊',        '0.25g*24粒',   '盒', '华北制药', 15.80, 400, 0, '2026-11-09', '目录内品种调价'),
+                      ('布洛芬缓释胶囊',      '0.3g*20粒',    '盒', '中美史克', 18.60, 350, 0, '2026-11-09', '目录内品种调价'),
+                      ('奥美拉唑肠溶胶囊',    '20mg*14粒',    '盒', '阿斯利康', 22.40, 300, 0, '2026-11-09', '目录内品种调价'),
+                      ('苯磺酸氨氯地平片',    '5mg*7片',      '盒', '辉瑞',    12.90, 500, 0, '2026-11-09', '目录内品种调价'),
+                      ('磷酸奥司他韦颗粒',    '30mg*10袋',    '盒', '东阳光',   45.00, 200, 1, '2026-11-09', '新药推介'),
+                      ('蒲地蓝消炎口服液',    '10ml*12支',    '盒', '济川药业', 32.50, 260, 1, '2026-11-09', '新药推介'),
+                      ('依巴斯汀片',          '10mg*12片',    '盒', '杭州澳医', 25.80, 180, 1, '2026-11-09', '新药推介'),
+                      ('瑞舒伐他汀钙片',      '10mg*7片',     '盒', '京新药业', 28.60, 220, 1, '2026-11-09', '新药推介')""",
+            """INSERT INTO drug (drug_name, spec, unit, manufacturer, price, stock, is_rx, status)
+               SELECT q.drug_name, q.spec, q.unit, q.manufacturer, q.quote_price, q.supply_stock, 1, 1
+               FROM drug_quote q
+               WHERE q.is_new = 1
+                 AND NOT EXISTS (SELECT 1 FROM drug d
+                                 WHERE d.drug_name = q.drug_name AND d.spec = q.spec)""",
         ],
-        "show": "SELECT archive_id, drug_id, drug_name, spec, price, stock, archive_reason "
-                "FROM drug_archive ORDER BY archive_id LIMIT 20",
+        "show": "SELECT drug_id, drug_name, spec, manufacturer, price, stock "
+                "FROM drug WHERE drug_id > 500 ORDER BY drug_id",
         "precheck": "SELECT 1 FROM information_schema.tables "
-                    "WHERE table_schema=DATABASE() AND table_name='drug_archive'",
+                    "WHERE table_schema=DATABASE() AND table_name='drug_quote'",
     },
     "update": {
-        "title": "③ 修改 UPDATE",
-        "desc": "把归档表中单价低于 30 元的记录，归档原因改为「低价药」",
+        "tag": "课程要求 ③ UPDATE（跨表 UPDATE…JOIN 调价）",
+        "title": "按最新报价调整目录内药品价格",
+        "desc": "采购委员会审批通过：目录内 4 个品种按供应商最新报价执行调价。"
+                "报价表与药品目录按「药品名 + 规格」关联（UPDATE…JOIN），一次更新同步生效，"
+                "并输出调价前后对比。",
         "sql": [
-            "UPDATE drug_archive SET archive_reason = '低价药' WHERE price < 30"
+            """UPDATE drug d
+               JOIN drug_quote q ON d.drug_name = q.drug_name AND d.spec = q.spec
+               SET d.price = q.quote_price
+               WHERE q.is_new = 0""",
         ],
-        "show": "SELECT archive_id, drug_name, price, archive_reason FROM drug_archive "
-                "ORDER BY archive_id LIMIT 20",
+        "show": "SELECT d.drug_id, d.drug_name, d.spec, d.price AS 调价后单价, q.quote_price AS 报价单价 "
+                "FROM drug d JOIN drug_quote q ON d.drug_name = q.drug_name AND d.spec = q.spec "
+                "WHERE q.is_new = 0 ORDER BY d.drug_id",
         "precheck": "SELECT 1 FROM information_schema.tables "
-                    "WHERE table_schema=DATABASE() AND table_name='drug_archive'",
+                    "WHERE table_schema=DATABASE() AND table_name='drug_quote'",
     },
     "delete": {
-        "title": "④ 删除 DELETE",
-        "desc": "删除归档表中单价低于 5 元的记录",
-        "sql": ["DELETE FROM drug_archive WHERE price < 5"],
-        "show": "SELECT COUNT(*) AS 剩余归档行数 FROM drug_archive",
+        "tag": "课程要求 ④ DELETE（跨表条件删除，外键安全）",
+        "title": "滞销与试销不达标药品淘汰下架",
+        "desc": "药剂科季度清理：本次推介的新药试销期内没有任何处方销售记录，予以下架；"
+                "目录内老药若库存为零且历史上也从未被开过处方（LEFT JOIN 处方明细判空），同样淘汰。"
+                "凡被处方引用的药品受外键约束保护，一律不可删除。",
+        "sql": [
+            """DELETE d FROM drug d
+               LEFT JOIN prescription_item i ON i.drug_id = d.drug_id
+               WHERE i.presc_id IS NULL
+                 AND (d.drug_id > 500 OR d.stock = 0)""",
+        ],
+        "show": "SELECT COUNT(*) AS 药品目录现存品种数 FROM drug",
         "precheck": "SELECT 1 FROM information_schema.tables "
-                    "WHERE table_schema=DATABASE() AND table_name='drug_archive'",
+                    "WHERE table_schema=DATABASE() AND table_name='drug_quote'",
     },
     "drop": {
-        "title": "⑤ 删表 DROP TABLE",
-        "desc": "删除演示用的 drug_archive 表",
-        "sql": ["DROP TABLE IF EXISTS drug_archive"],
+        "tag": "课程要求 ⑤ DROP TABLE（临时表生命周期结束）",
+        "title": "报价单归档，临时报价表完成使命销毁",
+        "desc": "报价结果已全部落地到药品目录 drug，按采购制度报价登记表留存 30 天后销毁。"
+                "临时表用完即删，不给主库留下垃圾数据——这正是业务中 DROP TABLE 的典型用途。",
+        "sql": ["DROP TABLE IF EXISTS drug_quote"],
         "show": "SELECT COUNT(*) AS 表是否还存在 FROM information_schema.tables "
-                "WHERE table_schema=DATABASE() AND table_name='drug_archive'",
+                "WHERE table_schema=DATABASE() AND table_name='drug_quote'",
     },
+}
+
+REPORTS = {
     "join": {
-        "title": "⑥ 连接查询 JOIN（≥3 表）",
-        "desc": "医生开药金额 Top10：prescription_item + prescription + visit + doctor + department（5 表）",
+        "tag": "课程要求 ⑥ JOIN（5 表连接 + 聚合）",
+        "title": "医生开药金额 Top10（药剂科绩效月报）",
+        "desc": "药剂科每月统计各医生开药金额用于合理用药审查：prescription_item → prescription → visit → doctor → department 五表连接后分组汇总。",
         "special": "doctor_revenue",
     },
     "join2": {
-        "title": "⑦ 连接查询 JOIN（患者全流水，7 表）",
-        "desc": "某患者的完整就诊流水：appointment + patient + schedule + doctor + department + visit + prescription_item + drug",
+        "tag": "课程要求 ⑥ JOIN（7 表连接，患者全流水）",
+        "title": "患者完整就诊流水（客服查询）",
+        "desc": "客服接到患者来电咨询历史就诊：从患者出发经预约、排班、医生、科室、就诊、处方、明细、药品七表连接，还原该患者每一次就诊的完整链路。",
         "special": "patient_flow",
     },
 }
 
+# 兼容旧接口名
+OPS = {**STEPS, **REPORTS}
+
 
 @bp.route("/ops")
 def ops_page():
-    return render_template("ops.html", ops=OPS)
+    return render_template("ops.html", steps=STEPS, reports=REPORTS)
 
 
 @bp.route("/api/ops", methods=["POST"])
@@ -376,23 +426,23 @@ def api_ops():
         return _err("未知操作")
     op = OPS[key]
 
-    # 前置检查：依赖的表必须已创建
+    # 前置检查：业务流程有先后依赖（如先有报价表才能录入报价）
     if op.get("precheck"):
         with get_cursor() as cur:
             cur.execute(op["precheck"])
             if not cur.fetchone():
-                return _err("请先执行「① 建表」，再执行本操作")
+                return _err("请先执行第 1 步「建立报价登记表」，报价表尚不存在")
 
     steps = []
     t0 = time.time()
     try:
-        # 特殊：复杂 join 查询（只读）
+        # 特殊：复杂 join 报表（只读）
         if op.get("special") == "doctor_revenue":
             rows = dao.report_doctor_revenue(10)
-            steps.append({"sql": "SELECT d.doctor_name, COUNT(DISTINCT pr.presc_id) ... "
+            steps.append({"sql": "SELECT d.doctor_name, dp.dept_name, COUNT(DISTINCT pr.presc_id) ... "
                                  "FROM prescription_item i JOIN prescription pr ... "
                                  "JOIN visit v ... JOIN doctor d ... JOIN department dp ... "
-                                 "GROUP BY ... ORDER BY 开药总额 DESC LIMIT 10",
+                                 "GROUP BY ... ORDER BY 开药金额 DESC LIMIT 10",
                           "rowcount": len(rows), "elapsed_ms": 0})
             return _ok({"steps": steps, "rows": rows, "columns": list(rows[0].keys()) if rows else [],
                         "elapsed_ms": round((time.time() - t0) * 1000, 2)})
@@ -404,7 +454,7 @@ def api_ops():
             return _ok({"steps": steps, "rows": rows, "columns": list(rows[0].keys()) if rows else [],
                         "elapsed_ms": round((time.time() - t0) * 1000, 2)})
 
-        # DDl/DML：在同一个事务里执行，成功提交、失败回滚
+        # DDL/DML：在同一个事务里执行，成功提交、失败回滚
         with transaction() as cur:
             for sql in op["sql"]:
                 s0 = time.time()

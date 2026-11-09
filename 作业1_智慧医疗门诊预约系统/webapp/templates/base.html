@@ -15,7 +15,7 @@
       <a href="{{ url_for('main.dashboard') }}"  class="{{ 'active' if request.endpoint=='main.dashboard' }}">数据总览</a>
       <a href="{{ url_for('main.register_page') }}" class="{{ 'active' if request.endpoint=='main.register_page' }}">患者挂号</a>
       <a href="{{ url_for('main.clinic_page') }}"  class="{{ 'active' if request.endpoint=='main.clinic_page' }}">医生接诊开方</a>
-      <a href="{{ url_for('main.ops_page') }}"     class="{{ 'active' if request.endpoint=='main.ops_page' }}">基本操作台</a>
+      <a href="{{ url_for('main.ops_page') }}"     class="{{ 'active' if request.endpoint=='main.ops_page' }}">药房采购工作台</a>
       <a href="{{ url_for('main.perf_page') }}"    class="{{ 'active' if request.endpoint=='main.perf_page' }}">索引性能对比</a>
     </nav>
     <div class="conn-chip" title="浏览器→Flask(本机)→MySQL(Linux服务器)，数据实际存放在下面这台服务器上">

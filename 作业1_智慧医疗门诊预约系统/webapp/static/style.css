@@ -231,3 +231,94 @@ pre.sql .kw { color: #7fd6ff; font-weight: 600; }
 .picked-row .n { flex: 1; }
 
 .checkline { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+
+/* =====================================================================
+   药房采购工作台：业务流程时间线
+   ===================================================================== */
+.flow-track {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 14px;
+}
+.flow-node {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border: 1.5px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg);
+  font-size: 12.5px;
+  color: var(--muted);
+  transition: all .25s ease;
+}
+.flow-no {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #eef2f7;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  flex: none;
+}
+.flow-label { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flow-arrow { color: var(--line-strong, #b9c4d0); font-weight: 700; }
+.flow-node.done {
+  border-color: var(--green);
+  background: var(--green-soft);
+  color: var(--green);
+}
+.flow-node.done .flow-no { background: var(--green); color: #fff; }
+.flow-node.fail {
+  border-color: var(--red);
+  background: var(--red-soft);
+  color: var(--red);
+}
+.flow-node.fail .flow-no { background: var(--red); color: #fff; }
+
+.step-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.step-no {
+  flex: none;
+  margin-top: 2px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.biz-desc {
+  margin: 12px 0 0;
+  padding: 10px 14px;
+  border-left: 3px solid var(--primary);
+  background: var(--bg);
+  border-radius: 0 8px 8px 0;
+  font-size: 13px;
+  color: var(--text, #333);
+  line-height: 1.75;
+}
+.step-result { margin-top: 14px; }
+
+.badge {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  vertical-align: middle;
+}
+.badge.ok { color: var(--green); }
+.badge.bad { color: var(--red); }
+
+.tag.blue { background: var(--primary-soft); color: var(--primary-dark); }
