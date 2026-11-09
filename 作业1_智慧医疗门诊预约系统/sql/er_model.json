@@ -1,0 +1,214 @@
+{
+  "_说明": "智慧医疗门诊系统的 ER 模型（建模工具格式）。tools/model_gen.py 读取本文件自动生成建表 DDL 与 Mermaid ER 图——课程要求 3：应用数据库建模工具建模、数据库代码自动生成。",
+  "database": "outpatient_db",
+  "charset": "utf8mb4",
+  "collation": "utf8mb4_general_ci",
+  "engine": "InnoDB",
+  "entities": [
+    {
+      "name": "department", "cn": "科室", "order": 1,
+      "attributes": [
+        {"name": "dept_id",  "type": "INT",         "auto": true,  "comment": "科室ID"},
+        {"name": "dept_name","type": "VARCHAR(50)", "not_null": true, "comment": "科室名称"},
+        {"name": "dept_type","type": "VARCHAR(20)", "not_null": true, "comment": "科室类型：内科/外科/专科"},
+        {"name": "location", "type": "VARCHAR(50)", "comment": "科室位置"},
+        {"name": "phone",    "type": "VARCHAR(20)", "comment": "科室电话"},
+        {"name": "status",   "type": "TINYINT",     "not_null": true, "default": 1, "comment": "状态：1启用 0停用"}
+      ],
+      "primary_key": ["dept_id"],
+      "unique": [{"name": "uk_dept_name", "columns": ["dept_name"]}],
+      "indexes": [], "foreign_keys": [], "checks": []
+    },
+    {
+      "name": "patient", "cn": "患者", "order": 2,
+      "attributes": [
+        {"name": "patient_id",      "type": "INT",          "auto": true,  "comment": "患者ID"},
+        {"name": "patient_name",    "type": "VARCHAR(50)",  "not_null": true, "comment": "姓名"},
+        {"name": "gender",          "type": "CHAR(1)",      "not_null": true, "comment": "性别：男/女"},
+        {"name": "birth_date",      "type": "DATE",         "comment": "出生日期"},
+        {"name": "phone",           "type": "VARCHAR(20)",  "not_null": true, "comment": "手机号"},
+        {"name": "id_card",         "type": "VARCHAR(18)",  "not_null": true, "comment": "身份证号"},
+        {"name": "medical_card_no", "type": "VARCHAR(20)",  "comment": "就诊卡号"},
+        {"name": "create_time",     "type": "DATETIME",     "not_null": true, "default": "CURRENT_TIMESTAMP", "comment": "建档时间"},
+        {"name": "status",          "type": "TINYINT",      "not_null": true, "default": 1, "comment": "状态：1正常 0注销"}
+      ],
+      "primary_key": ["patient_id"],
+      "unique": [
+        {"name": "uk_patient_phone",  "columns": ["phone"]},
+        {"name": "uk_patient_idcard", "columns": ["id_card"]}
+      ],
+      "indexes": [{"name": "idx_patient_name", "columns": ["patient_name"]}],
+      "foreign_keys": [], "checks": []
+    },
+    {
+      "name": "doctor", "cn": "医生", "order": 3,
+      "attributes": [
+        {"name": "doctor_id",   "type": "INT",          "auto": true,  "comment": "医生ID"},
+        {"name": "doctor_name", "type": "VARCHAR(50)",  "not_null": true, "comment": "姓名"},
+        {"name": "gender",      "type": "CHAR(1)",      "not_null": true, "comment": "性别：男/女"},
+        {"name": "title",       "type": "VARCHAR(20)",  "not_null": true, "comment": "职称：主任医师/副主任医师/主治医师/住院医师"},
+        {"name": "dept_id",     "type": "INT",          "not_null": true, "comment": "所属科室ID"},
+        {"name": "phone",       "type": "VARCHAR(20)",  "comment": "联系电话"},
+        {"name": "hire_date",   "type": "DATE",         "comment": "入职日期"},
+        {"name": "intro",       "type": "VARCHAR(200)", "comment": "擅长简介"},
+        {"name": "status",      "type": "TINYINT",      "not_null": true, "default": 1, "comment": "状态：1在职 0离职"}
+      ],
+      "primary_key": ["doctor_id"],
+      "unique": [],
+      "indexes": [{"name": "idx_doctor_dept", "columns": ["dept_id"]}],
+      "foreign_keys": [{"name": "fk_doctor_dept", "columns": ["dept_id"], "ref_table": "department", "ref_columns": ["dept_id"]}],
+      "checks": []
+    },
+    {
+      "name": "schedule", "cn": "排班", "order": 4,
+      "attributes": [
+        {"name": "schedule_id",  "type": "INT",          "auto": true,  "comment": "排班ID"},
+        {"name": "doctor_id",    "type": "INT",          "not_null": true, "comment": "医生ID"},
+        {"name": "work_date",    "type": "DATE",         "not_null": true, "comment": "出诊日期"},
+        {"name": "period",       "type": "VARCHAR(10)",  "not_null": true, "comment": "时段：上午/下午"},
+        {"name": "total_slots",  "type": "INT",          "not_null": true, "comment": "总号源数"},
+        {"name": "remain_slots", "type": "INT",          "not_null": true, "comment": "剩余号源数"},
+        {"name": "reg_fee",      "type": "DECIMAL(8,2)", "not_null": true, "default": 0, "comment": "挂号费(元)"},
+        {"name": "room",         "type": "VARCHAR(20)",  "comment": "诊室"}
+      ],
+      "primary_key": ["schedule_id"],
+      "unique": [{"name": "uk_schedule", "columns": ["doctor_id", "work_date", "period"]}],
+      "indexes": [{"name": "idx_schedule_date", "columns": ["work_date"]}],
+      "foreign_keys": [{"name": "fk_schedule_doctor", "columns": ["doctor_id"], "ref_table": "doctor", "ref_columns": ["doctor_id"]}],
+      "checks": [{"name": "ck_schedule_slots", "expr": "remain_slots >= 0 AND remain_slots <= total_slots"}]
+    },
+    {
+      "name": "appointment", "cn": "预约挂号", "order": 5,
+      "attributes": [
+        {"name": "appt_id",     "type": "INT",     "auto": true,  "comment": "预约ID"},
+        {"name": "patient_id",  "type": "INT",     "not_null": true, "comment": "患者ID"},
+        {"name": "schedule_id", "type": "INT",     "not_null": true, "comment": "排班ID"},
+        {"name": "appt_time",   "type": "DATETIME","not_null": true, "default": "CURRENT_TIMESTAMP", "comment": "预约时间"},
+        {"name": "queue_no",    "type": "INT",     "not_null": true, "comment": "就诊顺序号"},
+        {"name": "status",      "type": "VARCHAR(10)", "not_null": true, "default": "'已预约'", "comment": "状态：已预约/已就诊/已取消/爽约"}
+      ],
+      "primary_key": ["appt_id"],
+      "unique": [],
+      "indexes": [
+        {"name": "idx_appt_patient",    "columns": ["patient_id"]},
+        {"name": "idx_appt_schedule",   "columns": ["schedule_id"]},
+        {"name": "idx_appt_status_time","columns": ["status", "appt_time"]}
+      ],
+      "foreign_keys": [
+        {"name": "fk_appt_patient",  "columns": ["patient_id"],  "ref_table": "patient",  "ref_columns": ["patient_id"]},
+        {"name": "fk_appt_schedule", "columns": ["schedule_id"], "ref_table": "schedule", "ref_columns": ["schedule_id"]}
+      ],
+      "checks": []
+    },
+    {
+      "name": "visit", "cn": "就诊记录", "order": 6,
+      "attributes": [
+        {"name": "visit_id",        "type": "INT",          "auto": true,  "comment": "就诊ID"},
+        {"name": "appt_id",         "type": "INT",          "not_null": true, "comment": "预约ID(唯一,1-1)"},
+        {"name": "patient_id",      "type": "INT",          "not_null": true, "comment": "患者ID"},
+        {"name": "doctor_id",       "type": "INT",          "not_null": true, "comment": "医生ID"},
+        {"name": "visit_time",      "type": "DATETIME",     "not_null": true, "comment": "就诊时间"},
+        {"name": "chief_complaint", "type": "VARCHAR(500)", "comment": "主诉"},
+        {"name": "diagnosis",       "type": "VARCHAR(500)", "comment": "诊断"},
+        {"name": "advice",          "type": "VARCHAR(500)", "comment": "医嘱"}
+      ],
+      "primary_key": ["visit_id"],
+      "unique": [{"name": "uk_visit_appt", "columns": ["appt_id"]}],
+      "indexes": [
+        {"name": "idx_visit_patient", "columns": ["patient_id"]},
+        {"name": "idx_visit_doctor",  "columns": ["doctor_id"]}
+      ],
+      "foreign_keys": [
+        {"name": "fk_visit_appt",    "columns": ["appt_id"],    "ref_table": "appointment", "ref_columns": ["appt_id"]},
+        {"name": "fk_visit_patient", "columns": ["patient_id"], "ref_table": "patient",     "ref_columns": ["patient_id"]},
+        {"name": "fk_visit_doctor",  "columns": ["doctor_id"],  "ref_table": "doctor",      "ref_columns": ["doctor_id"]}
+      ],
+      "checks": []
+    },
+    {
+      "name": "prescription", "cn": "处方", "order": 7,
+      "attributes": [
+        {"name": "presc_id",   "type": "INT",     "auto": true,  "comment": "处方ID"},
+        {"name": "visit_id",   "type": "INT",     "not_null": true, "comment": "就诊ID"},
+        {"name": "presc_time", "type": "DATETIME","not_null": true, "default": "CURRENT_TIMESTAMP", "comment": "开方时间"},
+        {"name": "presc_type", "type": "VARCHAR(10)", "not_null": true, "comment": "处方类型：西药/中药"},
+        {"name": "status",     "type": "VARCHAR(10)", "not_null": true, "default": "'已开方'", "comment": "状态：已开方/已缴费/已作废"}
+      ],
+      "primary_key": ["presc_id"],
+      "unique": [],
+      "indexes": [{"name": "idx_presc_visit", "columns": ["visit_id"]}],
+      "foreign_keys": [{"name": "fk_presc_visit", "columns": ["visit_id"], "ref_table": "visit", "ref_columns": ["visit_id"]}],
+      "checks": []
+    },
+    {
+      "name": "drug", "cn": "药品", "order": 8,
+      "attributes": [
+        {"name": "drug_id",      "type": "INT",          "auto": true,  "comment": "药品ID"},
+        {"name": "drug_name",    "type": "VARCHAR(100)", "not_null": true, "comment": "药品名称"},
+        {"name": "spec",         "type": "VARCHAR(50)",  "comment": "规格"},
+        {"name": "unit",         "type": "VARCHAR(10)",  "comment": "单位"},
+        {"name": "manufacturer", "type": "VARCHAR(100)", "comment": "生产厂家"},
+        {"name": "price",        "type": "DECIMAL(8,2)", "not_null": true, "comment": "当前单价(元)"},
+        {"name": "stock",        "type": "INT",          "not_null": true, "default": 0, "comment": "库存量"},
+        {"name": "is_rx",        "type": "TINYINT",      "not_null": true, "default": 1, "comment": "是否处方药：1是 0否"},
+        {"name": "status",       "type": "TINYINT",      "not_null": true, "default": 1, "comment": "状态：1在用 0停用"}
+      ],
+      "primary_key": ["drug_id"],
+      "unique": [],
+      "indexes": [{"name": "idx_drug_name", "columns": ["drug_name"]}],
+      "foreign_keys": [],
+      "checks": [{"name": "ck_drug_stock", "expr": "stock >= 0"}]
+    },
+    {
+      "name": "prescription_item", "cn": "处方明细", "order": 9,
+      "attributes": [
+        {"name": "item_id",    "type": "INT",          "auto": true,  "comment": "明细ID"},
+        {"name": "presc_id",   "type": "INT",          "not_null": true, "comment": "处方ID"},
+        {"name": "drug_id",    "type": "INT",          "not_null": true, "comment": "药品ID"},
+        {"name": "quantity",   "type": "INT",          "not_null": true, "comment": "数量"},
+        {"name": "usage_note", "type": "VARCHAR(100)", "comment": "用法用量"},
+        {"name": "unit_price", "type": "DECIMAL(8,2)", "not_null": true, "comment": "开方时单价(元)"}
+      ],
+      "primary_key": ["item_id"],
+      "unique": [],
+      "indexes": [
+        {"name": "idx_item_presc", "columns": ["presc_id"]},
+        {"name": "idx_item_drug",  "columns": ["drug_id"]}
+      ],
+      "foreign_keys": [
+        {"name": "fk_item_presc", "columns": ["presc_id"], "ref_table": "prescription", "ref_columns": ["presc_id"]},
+        {"name": "fk_item_drug",  "columns": ["drug_id"],  "ref_table": "drug",         "ref_columns": ["drug_id"]}
+      ],
+      "checks": [{"name": "ck_item_qty", "expr": "quantity > 0"}]
+    },
+    {
+      "name": "payment", "cn": "缴费记录", "order": 10,
+      "attributes": [
+        {"name": "pay_id",     "type": "INT",          "auto": true,  "comment": "缴费ID"},
+        {"name": "visit_id",   "type": "INT",          "not_null": true, "comment": "就诊ID"},
+        {"name": "fee_type",   "type": "VARCHAR(10)",  "not_null": true, "comment": "费用类型：挂号费/药费"},
+        {"name": "amount",     "type": "DECIMAL(10,2)","not_null": true, "comment": "金额(元)"},
+        {"name": "pay_method", "type": "VARCHAR(10)",  "comment": "支付方式：现金/微信/支付宝/医保"},
+        {"name": "pay_time",   "type": "DATETIME",     "not_null": true, "default": "CURRENT_TIMESTAMP", "comment": "支付时间"},
+        {"name": "status",     "type": "VARCHAR(10)",  "not_null": true, "default": "'已支付'", "comment": "状态：已支付/已退款"}
+      ],
+      "primary_key": ["pay_id"],
+      "unique": [],
+      "indexes": [{"name": "idx_pay_visit", "columns": ["visit_id"]}],
+      "foreign_keys": [{"name": "fk_pay_visit", "columns": ["visit_id"], "ref_table": "visit", "ref_columns": ["visit_id"]}],
+      "checks": [{"name": "ck_pay_amount", "expr": "amount >= 0"}]
+    }
+  ],
+  "relationships": [
+    {"type": "1-N", "from": "department",  "to": "doctor",           "label": "隶属科室"},
+    {"type": "1-N", "from": "doctor",      "to": "schedule",         "label": "排班"},
+    {"type": "1-N", "from": "patient",     "to": "appointment",      "label": "发起预约"},
+    {"type": "1-N", "from": "schedule",    "to": "appointment",      "label": "号源归属"},
+    {"type": "1-1", "from": "appointment", "to": "visit",            "label": "接诊（visit.appt_id 唯一）"},
+    {"type": "1-N", "from": "visit",       "to": "prescription",     "label": "开出处方"},
+    {"type": "N-M", "from": "prescription","to": "drug",             "label": "处方含药品", "via": "prescription_item"},
+    {"type": "1-N", "from": "visit",       "to": "payment",          "label": "产生缴费"},
+    {"type": "1-N", "from": "patient",     "to": "visit",            "label": "就诊"},
+    {"type": "1-N", "from": "doctor",      "to": "visit",            "label": "接诊医生"}
+  ]
+}
