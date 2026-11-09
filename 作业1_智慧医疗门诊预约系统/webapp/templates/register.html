@@ -3,7 +3,6 @@
 
 {% block content %}
 <div class="page-head c-green">
-  <div class="kicker">TRANSACTION</div>
   <h1>患者挂号</h1>
   <p>一次挂号 = 扣减号源 + 生成预约，两条语句在同一个事务里完成；右下角可多线程并发抢同一个号源。</p>
 </div>
@@ -56,7 +55,7 @@
         <h2>挂号结果</h2>
         <span class="note">事务执行过程与实际 SQL</span>
       </div>
-      <div id="regResult"><div class="center-empty mid">提交后显示事务执行结果与 SQL</div></div>
+      <div id="regResult"><div class="center-empty">提交后显示事务执行结果与 SQL</div></div>
     </div>
 
     <div class="block c-amber">
@@ -138,7 +137,7 @@ async function doRegister() {
   const d = r.data;
   showMsg($('regMsg'), `挂号成功：预约号 ${d.appt_id}，就诊顺序号 ${d.queue_no}，耗时 ${d.elapsed_ms} ms`, 'ok');
   $('regResult').innerHTML = `
-    <dl class="kv">
+    <dl class="kv two">
       <dt>预约 ID</dt><dd>${d.appt_id}</dd>
       <dt>就诊顺序号</dt><dd>${d.queue_no}</dd>
       <dt>号源变化</dt><dd><b>${d.remain_before}</b> → <b style="color:var(--green)">${d.remain_after}</b></dd>
@@ -176,14 +175,14 @@ async function runConcurrency() {
              <td style="color:var(--red)">失败 <span class="hint">${esc(f.reason)}</span></td></tr>`;
   });
   $('ccResult').innerHTML = `
-    <div class="metrics" style="margin:18px 0 14px;gap:0 34px">
-      <div class="metric"><div class="label">成功</div><div class="value" style="color:var(--green)">${d.success_count}</div></div>
-      <div class="metric"><div class="label">失败</div><div class="value" style="color:var(--faint)">${d.failed_count}</div></div>
-      <div class="metric"><div class="label">号源变化</div><div class="value" style="font-size:20px">${d.remain_before} → ${d.remain_after}</div></div>
-      <div class="metric"><div class="label">总耗时</div><div class="value" style="font-size:20px">${d.elapsed_ms} ms</div></div>
+    <div class="stat-line">
+      <span>成功 <b style="color:var(--green)">${d.success_count}</b></span>
+      <span>失败 <b style="color:var(--faint)">${d.failed_count}</b></span>
+      <span>号源 <b>${d.remain_before} → ${d.remain_after}</b></span>
+      <span>耗时 <b>${d.elapsed_ms} ms</b></span>
     </div>
-    <div class="table-wrap" style="max-height:260px">
-      <table><thead><tr><th>线程</th><th class="num">预约ID</th><th class="num">顺序号</th><th>结果</th></tr></thead>
+    <div class="table-wrap" style="max-height:280px">
+      <table class="fixed"><thead><tr><th>线程</th><th class="num">预约ID</th><th class="num">顺序号</th><th>结果</th></tr></thead>
       <tbody>${rows}</tbody></table>
     </div>`;
   loadSchedules();

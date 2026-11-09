@@ -3,7 +3,6 @@
 
 {% block content %}
 <div class="page-head c-violet">
-  <div class="kicker">PHARMACY</div>
   <h1>药房业务</h1>
   <p>药品目录、业务档案、运营报表　—　课程要求的六项基本操作都在这里完成，每次操作都会显示实际执行的 SQL。</p>
 </div>
@@ -41,7 +40,7 @@
         <h2>业务档案</h2>
         <span class="note">建表 · 删表</span>
       </div>
-      <button class="ghost" style="width:100%" onclick="openArchiveForm()">＋ 新建业务档案</button>
+      <button class="btn-line block-level" onclick="openArchiveForm()">＋ 新建业务档案</button>
       <div id="archiveList" style="margin-top:10px"><div class="center-empty">加载中…</div></div>
     </div>
     <div class="block c-teal">
@@ -72,7 +71,7 @@
       <h2>患者就诊流水</h2>
       <div class="btn-row" style="margin-left:auto">
         <span class="hint">7 表 JOIN · 患者编号</span>
-        <input type="number" id="pid" value="1" style="width:84px">
+        <input type="number" id="pid" value="1" style="width:104px">
         <button class="ghost small" onclick="loadReport('patient_flow')">查询</button>
       </div>
     </div>
@@ -165,7 +164,7 @@ async function loadDrugs() {
     + '<th class="num">单价（元）</th><th class="num">库存</th><th>状态</th><th>操作</th>'
     + '</tr></thead><tbody>';
   rows.forEach((d, i) => {
-    const rx = d.rx ? ' <span class="tag">处方药</span>' : '';
+    const rx = d.rx ? '<span class="tag rx">处方药</span>' : '';
     html += '<tr>'
       + '<td>' + esc(d.name) + rx + '</td>'
       + '<td>' + esc(d.spec) + '</td>'
@@ -245,7 +244,7 @@ async function loadArchives() {
   V('archiveList').innerHTML = ARCHIVES.map((a, i) =>
     '<div class="table-item" id="arc' + i + '" onclick="selectArchive(' + i + ')">'
     + '<div style="flex:1"><b>' + esc(a.name) + '</b><div class="hint">' + a.count + ' 条记录</div></div>'
-    + '<button class="ghost small" onclick="event.stopPropagation();dropArchive(' + i + ')">删除</button>'
+    + '<button class="link danger" onclick="event.stopPropagation();dropArchive(' + i + ')">删除</button>'
     + '</div>').join('');
   if (CUR_ARCHIVE) {
     const same = ARCHIVES.findIndex(a => a.table === CUR_ARCHIVE.table);
@@ -266,15 +265,15 @@ async function selectArchive(i) {
   window._records = rows;
   const fields = CUR_ARCHIVE.fields;
   let html = '<div class="toolbar" style="margin-bottom:14px;justify-content:flex-end">'
-    + '<button class="ghost small" onclick="openRecordForm()">＋ 录入记录</button></div>';
+    + '<button class="btn-line" onclick="openRecordForm()">＋ 录入记录</button></div>';
   if (!rows.length) {
     html += '<div class="center-empty">这个档案还没有记录，点「录入记录」添加第一条</div>';
   } else {
-    html += '<div class="table-wrap"><table><thead><tr><th class="num" style="width:52px">#</th>';
+    html += '<div class="table-wrap"><table><thead><tr>';
     fields.forEach(f => { html += '<th>' + esc(f.label) + '</th>'; });
     html += '<th>录入时间</th></tr></thead><tbody>';
     rows.forEach(r => {
-      html += '<tr><td class="num">' + r.id + '</td>';
+      html += '<tr>';
       fields.forEach(f => { html += '<td>' + esc(r[f.key]) + '</td>'; });
       html += '<td>' + esc(r.created_at) + '</td></tr>';
     });
