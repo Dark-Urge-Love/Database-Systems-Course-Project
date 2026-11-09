@@ -9,7 +9,17 @@
 </div>
 
 {% if not db_ok %}
-<div class="msg bad show">数据库未连接：{{ db_err }}　请确认 Ubuntu 中 MySQL 已启动。</div>
+<div class="msg bad show">数据库未连接：{{ db_err }}
+  <br>已尝试：Linux 服务器 {{ conn.host }}（账号 {{ conn.user }}）与本机 MySQL；两者都连不上。
+  <br>排查顺序：① 打开开始菜单里的 Ubuntu；② 在 Ubuntu 里执行 <b>dbup</b>（启动 MySQL）；
+  ③ 若 Ubuntu 里还没有 druguser 账号与 drug_db 数据，执行 <b>deploy/init_server_db.sh</b>。
+</div>
+{% elif conn.is_local %}
+<div class="msg info show">
+  当前连接的是<b>本机 MySQL</b>（开发模式）：<b class="mono">{{ conn.datadir }}</b>。
+  课程要求的正式环境是 <b>Linux 服务器</b>——打开 Ubuntu 后在项目里执行
+  <b>deploy/init_server_db.sh</b>（建 druguser 账号 + drug_db 数据），客户端下次启动会自动切回服务器。
+</div>
 {% endif %}
 
 <!-- ============ 关键指标 ============ -->
@@ -117,7 +127,10 @@
   <div class="block-head">
     <span class="no">03</span>
     <h2>数据库连接</h2>
-    <span class="note">客户端 Flask（本机）→ MySQL（Linux 服务器）</span>
+    <span class="note">
+      {% if conn.is_local %}开发模式：本机 MySQL{% elif conn.profile == 'custom' %}手动指定{% else %}课程环境：Linux 服务器{% endif %}
+      —— 客户端 Flask（本机）→ MySQL
+    </span>
   </div>
   <div class="meta-line">
     <span>地址 <b>{{ conn.host }}:{{ conn.port }}</b></span>

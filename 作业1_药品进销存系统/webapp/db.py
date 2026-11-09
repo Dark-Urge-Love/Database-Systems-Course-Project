@@ -36,23 +36,24 @@ _rediscovering = False
 
 def connect(autocommit=False):
     """
-    新建一条到 Linux 服务器上 MySQL 的连接。
+    新建一条到 MySQL 的连接（Linux 服务器优先，连不上时回退本机）。
 
-    如果连不上（Ubuntu 重启后 IP 变了），会自动重新探测一次服务器地址再重连，
-    这样就不用每次改配置。
+    如果连不上（Ubuntu 重启后 IP 变了、或服务器账号/服务状态变了），
+    会自动重新探测一次再重连，这样就不用每次改配置。
     """
     global _rediscovering
     try:
         return _raw_connect(autocommit)
     except pymysql.OperationalError as e:
         code = e.args[0] if e.args else None
-        if code in (2002, 2003) and config.AUTO_DISCOVER and not _rediscovering:
+        # 2002/2003 网络不通；1045 账号或密码不对 —— 都可能因为换了连接目标而自愈
+        if code in (2002, 2003, 1045) and config.AUTO_DISCOVER and not _rediscovering:
             _rediscovering = True
             try:
                 from . import netprobe
-                old_host = config.DB_HOST
+                old = (config.DB_HOST, config.DB_USER)
                 netprobe.ensure_server(config, force=False, verbose=False)
-                if config.DB_HOST != old_host:
+                if (config.DB_HOST, config.DB_USER) != old:
                     return _raw_connect(autocommit)
             finally:
                 _rediscovering = False

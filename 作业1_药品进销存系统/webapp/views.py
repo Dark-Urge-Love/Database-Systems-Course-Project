@@ -25,21 +25,27 @@ bp = Blueprint("main", __name__)
 # 公共：把当前连接信息塞给所有模板
 # =====================================================================
 def connection_banner():
+    profile = getattr(config, "ACTIVE_PROFILE", "server")
+    base = {
+        "host": config.DB_HOST,
+        "port": config.DB_PORT,
+        "user": config.DB_USER,
+        "db": config.DB_NAME,
+        "profile": profile,
+        "is_local": profile == "local",
+    }
     try:
         info = dao.server_info()
-        return {
+        base.update({
             "ok": True,
-            "host": config.DB_HOST,
-            "port": config.DB_PORT,
-            "user": config.DB_USER,
-            "db": config.DB_NAME,
             "version": info["version"],
             "hostname": info["hostname"],
             "datadir": info["datadir"],
-        }
+        })
+        return base
     except Exception as e:                                     # noqa: BLE001
-        return {"ok": False, "host": config.DB_HOST, "port": config.DB_PORT,
-                "user": config.DB_USER, "db": config.DB_NAME, "error": str(e)}
+        base.update({"ok": False, "error": str(e)})
+        return base
 
 
 @bp.app_context_processor
@@ -117,6 +123,10 @@ def _friendly(e, sql=None):
         1265: "内容格式与字段类型不匹配。",
         1292: "日期格式不正确，请使用 2026-01-31 这样的格式。",
         3819: "数据不满足业务校验规则（如库存不能为负）。",
+        1045: "数据库拒绝了登录（账号或密码不对）。若连的是 Linux 服务器，"
+              "请在 Ubuntu 里执行 deploy/init_server_db.sh 创建 druguser 账号。",
+        2003: "连不上数据库服务器：确认 Ubuntu 已启动、MySQL 已运行（dbup），"
+              "或服务器 IP 已变化（Ubuntu 里执行 hostname -I 查看）。",
     }
     msg = msgs.get(code, "数据库错误（%s）：%s" % (code, str(e)))
     if sql:

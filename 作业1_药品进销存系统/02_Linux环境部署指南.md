@@ -117,6 +117,53 @@ ROOT_PW='Root@123456' APP_USER='druguser' APP_PW='Drug@123456' DB_NAME='drug_db'
 
 ---
 
+## 步骤 2.5：已有 Ubuntu / MySQL，只是缺账号或数据（最常见）
+
+如果你**之前部署过别的系统**（比如旧的 `clinic` 账号 + `outpatient_db`），
+或者只是重新灌了一次库，那么 `druguser` 账号与 `drug_db` 数据可能并不存在。
+此时客户端会报 **1045 Access denied** 或直接显示"数据库未连接"。
+
+在 Ubuntu 里一条命令补齐（建账号 + 建库 + 13 张表 + 15.3 万条数据 + 索引 + 校验）：
+
+```bash
+cd ~/作业1_药品进销存系统          # 或 /mnt/d/lyl\ coding/.../作业1_药品进销存系统
+bash deploy/init_server_db.sh
+```
+
+脚本做的事：
+
+| 步骤 | 内容 |
+|---|---|
+| 0 | 探测管理员连接方式（`sudo mysql` 免密 / `root` 密码） |
+| 1 | 建 `druguser`@`%`（密码 `Drug@123456`）+ 建库 `drug_db` + 只授权 `drug_db.*` |
+| 2 | 执行 `sql/schema.sql`（13 张表、19 外键、13 CHECK） |
+| 3 | 执行 `sql/data_gen.py`（153,072 条，末尾自动 6 项自洽校验） |
+| 4 | 执行 `sql/index.sql`（建索引，幂等） |
+| 5 | 执行 `sql/verify.sql`（数据量 / 账实自洽 / 结构统计 / 业务样例） |
+
+两种常见用法：
+
+```bash
+# root 已设过密码的情况
+ROOT_PW='你的root密码' bash deploy/init_server_db.sh
+
+# 只想补账号、数据已经灌过了
+SKIP_DATA=1 bash deploy/init_server_db.sh
+```
+
+> 只建账号不灌数据也行：`sudo mysql < deploy/create_app_user.sql`。
+>
+> 脚本可重复执行：账号用 `CREATE USER IF NOT EXISTS` + `ALTER` 覆盖密码，
+> 库表由 `schema.sql` 开头 `DROP DATABASE` 重建，**执行前请确认库里没有要保留的数据**。
+
+跑完后在 Windows 端验证：
+
+```bash
+python tools/check_conn.py --host 192.168.150.181 --user druguser --password Drug@123456
+```
+
+---
+
 ## 步骤 3：Windows 端验证连通性（关键一步）
 
 先装依赖：
@@ -240,7 +287,8 @@ python tools/selfcheck_req.py
 | 连接超时 | 防火墙拦截 | `sudo ufw allow 3306/tcp` |
 | 连接超时 | 虚拟网络模式不对 | 换桥接，或配 NAT 端口转发 |
 | 连接超时 | WSL2 IP 变了 | 在 Ubuntu 里 `hostname -I` 看新 IP；客户端会自动重新探测 |
-| 错误码 **1045** | 账号密码不对 | 重建账号（`check_conn.py` 会给出提示） |
+| 错误码 **1045** `druguser` | 服务器上还没建这个账号（换系统后最常见） | 在 Ubuntu 里 `bash deploy/init_server_db.sh` |
+| 错误码 **1045**（其他账号） | 账号密码不对 | 重建账号（`check_conn.py` 会给出提示） |
 | 错误码 **1130** | 账号主机名是 `localhost` | 必须是 `'druguser'@'%'` 才能从外部连 |
 | 错误码 **1049** | 库不存在 | 先跑 `deploy/deploy_db.sh` |
 | 错误码 **3819** | CHECK 约束被违反 | 业务上等价于"库存不能为负"，客户端已翻译成中文提示 |
