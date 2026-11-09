@@ -86,6 +86,11 @@ fi
 
 # ---------- 方式 3：root + 密码（root 已改成密码登录的情况） ----------
 if [ -z "$ADMIN_CMD" ]; then
+  echo ""
+  echo "      提示：这里要的是 **MySQL 的 root 密码**，不是 Ubuntu 的登录密码。"
+  echo "            本项目早期一键脚本设置的默认值是 Root@123456，可以先试它；"
+  echo "            不知道就按一次回车跳过（不会改动任何数据），"
+  echo "            然后用 Windows PowerShell 执行 wsl -u root 以 root 身份重跑本脚本。"
   if [ -z "${ROOT_PW:-}" ]; then
     printf "      请输入 MySQL 的 root 密码（直接回车跳过）："
     read -r -s ROOT_PW
@@ -94,6 +99,8 @@ if [ -z "$ADMIN_CMD" ]; then
   if [ -n "${ROOT_PW:-}" ] && mysql -h 127.0.0.1 -u root -p"${ROOT_PW}" -e "SELECT 1" > /dev/null 2>&1; then
     ADMIN_CMD="mysql --default-character-set=utf8mb4 -h 127.0.0.1 -u root -p${ROOT_PW}"
     echo "      管理员连接：root@127.0.0.1（密码方式）"
+  elif [ -n "${ROOT_PW:-}" ]; then
+    echo "      该密码登录失败。若不想再试，按回车跳过后改用 root 身份重跑。"
   fi
 fi
 
