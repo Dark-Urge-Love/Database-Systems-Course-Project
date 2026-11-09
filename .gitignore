@@ -39,3 +39,7 @@ desktop.ini
 
 # ---------- 本工具的工作目录（会话记录，非项目内容）----------
 .workbuddy/
+
+# ---------- 建模预览中间产物 ----------
+sql/_er_preview.html
+sql/_err_probe.html

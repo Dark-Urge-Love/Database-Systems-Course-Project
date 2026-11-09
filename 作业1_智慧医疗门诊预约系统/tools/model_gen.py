@@ -98,8 +98,32 @@ def gen_ddl(model):
 # ---------------------------------------------------------------------
 # 生成 Mermaid ER 图
 # ---------------------------------------------------------------------
-def gen_mermaid(model):
+def gen_mermaid(model, with_attrs=True):
+    """生成 Mermaid ER 图：实体（含属性/主外键）+ 联系。"""
     lines = ["erDiagram"]
+    if with_attrs:
+        for e in sorted(model["entities"], key=lambda x: x.get("order", 99)):
+            pk = set(e.get("primary_key") or [])
+            fk = set(c for f in (e.get("foreign_keys") or []) for c in f["columns"])
+            uk = set(c for u in (e.get("unique") or []) for c in u["columns"])
+            lines.append("    %s {" % e["name"])
+            for a in e["attributes"]:
+                tag = []
+                if a["name"] in pk:
+                    tag.append("PK")
+                if a["name"] in fk:
+                    tag.append("FK")
+                if a["name"] in uk:
+                    tag.append("UK")
+                suffix = (" " + ",".join(tag)) if tag else ""
+                # Mermaid 的类型标记不接受逗号，DECIMAL(8,2) 这类只显示基础类型
+                atype = a["type"].replace(" ", "")
+                if atype.startswith("DECIMAL"):
+                    atype = "DECIMAL"
+                lines.append('        %s %s%s "%s"' % (
+                    atype, a["name"], suffix, a.get("comment") or a["name"]))
+            lines.append("    }")
+
     for r in model["relationships"]:
         label = r.get("label") or "关联"
         if r["type"] == "1-1":
