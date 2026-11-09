@@ -39,10 +39,14 @@ echo "=============================================="
 # =====================================================================
 # 0. 找到一种能用的管理员登录方式
 # ---------------------------------------------------------------------
-# Ubuntu 新装的 MySQL，root 走 auth_socket —— 只要 sudo 能过，`sudo mysql`
+# Ubuntu 新装的 MySQL，root 走 auth_socket —— 只要能以 root 身份操作，`mysql`
 # 就免密进得去。注意不能用 `sudo -n`（-n = 绝不询问密码），
 # 而 Ubuntu 的 sudo 通常要输密码，加了 -n 必然失败。
-# 顺序：sudo 免密 → sudo 输密码 → root 密码方式
+# 尝试顺序：
+#   方式 0  已经是 root（wsl -u root 进来）→ 本地 socket / debian.cnf，免密
+#   方式 1  sudo 免密
+#   方式 2  sudo 输密码（最常见；忘了密码用 `wsl -u root passwd 用户名` 重置）
+#   方式 3  root 密码（ROOT_PW 环境变量或交互输入）
 # =====================================================================
 if ! command -v mysql > /dev/null 2>&1; then
   echo "[0/6] [错误] 找不到 mysql 客户端，请先安装：sudo apt-get install -y mysql-server"
@@ -51,17 +55,29 @@ fi
 
 ADMIN_CMD=""
 
+# ---------- 方式 0：已经是 root（用 `wsl -u root` 进来的），不需要任何密码 ----------
+if [ "$(id -u)" = "0" ]; then
+  if mysql -e "SELECT 1" > /dev/null 2>&1; then
+    ADMIN_CMD="mysql"
+    echo "[0/6] 管理员连接：root 本地 socket（免密）"
+  elif [ -r /etc/mysql/debian.cnf ] \
+       && mysql --defaults-file=/etc/mysql/debian.cnf -e "SELECT 1" > /dev/null 2>&1; then
+    ADMIN_CMD="mysql --defaults-file=/etc/mysql/debian.cnf"
+    echo "[0/6] 管理员连接：debian-sys-maint 维护账号（免密）"
+  fi
+fi
+
 # ---------- 方式 1：sudo 免密（有 NOPASSWD 规则的机器） ----------
-if sudo -n true 2> /dev/null && sudo -n mysql -e "SELECT 1" > /dev/null 2>&1; then
+if [ -z "$ADMIN_CMD" ] && sudo -n true 2> /dev/null && sudo -n mysql -e "SELECT 1" > /dev/null 2>&1; then
   ADMIN_CMD="sudo mysql"
   echo "[0/6] 管理员连接：sudo mysql（免密 auth_socket）"
 fi
 
 # ---------- 方式 2：sudo + 输入密码（最常见） ----------
-if [ -z "$ADMIN_CMD" ]; then
+if [ -z "$ADMIN_CMD" ] && [ "$(id -u)" != "0" ]; then
   echo "[0/6] 需要管理员权限访问 MySQL。"
   echo "      若下面出现 [sudo] password for ...，请输入你登录 Ubuntu 的密码。"
-  echo "      （输入时屏幕上不会显示字符，这是正常的）"
+  echo "      （输入时屏幕上不会显示字符，这是正常的；忘了密码见脚本末尾提示）"
   if sudo mysql -e "SELECT 1" > /dev/null 2>&1; then
     ADMIN_CMD="sudo mysql"
     echo "      管理员连接：sudo mysql（auth_socket）"
@@ -83,22 +99,33 @@ fi
 
 if [ -z "$ADMIN_CMD" ]; then
   cat <<'TIP'
-[0/6] [错误] 三种管理员登录方式都失败了，请按顺序排查：
+[0/6] [错误] 所有管理员登录方式都失败了，按下面顺序排查：
 
-  1) MySQL 服务没启动
-       sudo service mysql start          # 或 sudo systemctl start mysql
+  ① MySQL 没启动
+       sudo service mysql start
        sudo ss -tlnp | grep 3306
 
-  2) 你的账号没 sudo 权限，或密码输错
-       sudo -v                           # 单独验证一次 sudo
+  ② 忘了 Ubuntu 的 sudo 密码 —— 不用旧密码，从 Windows 直接重置：
+       在 Windows 的 PowerShell 里执行（把 liaoyilin 换成你的用户名）：
+         wsl -u root passwd liaoyilin
+       按提示输两遍新密码，之后 sudo 就用这个新密码。
 
-  3) root 已经设了密码，但脚本不知道
-       ROOT_PW='你的root密码' bash deploy/init_server_db.sh
+  ③ 想完全绕开 sudo —— 从 Windows 以 root 身份进 WSL：
+       在 Windows 的 PowerShell 里执行：
+         wsl -u root
+       然后在里面的 root shell 里重跑本脚本（root 不需要 sudo）：
+         cd "/mnt/d/lyl coding/大三上/数据库课设/作业1_药品进销存系统"
+         bash deploy/init_server_db.sh
 
-  4) 忘记 root 密码 —— Ubuntu 默认允许用 auth_socket 直接进：
-       sudo mysql
-     进入后执行：ALTER USER 'root'@'localhost' IDENTIFIED WITH auth_socket;
-     退出后重跑本脚本即可。
+  ④ MySQL 的 root 也被设过密码、而且忘了
+       先以 root 身份进 WSL：wsl -u root
+       然后依次执行（--skip-grant-tables 期间不做权限校验）：
+         sudo service mysql stop
+         sudo mysqld_safe --skip-grant-tables --skip-networking &
+         sleep 5
+         mysql -e "FLUSH PRIVILEGES; ALTER USER 'root'@'localhost' IDENTIFIED WITH auth_socket;"
+         sudo service mysql restart
+       之后 `sudo mysql` 就能免密进入，再重跑本脚本。
 TIP
   exit 1
 fi
