@@ -83,22 +83,18 @@ def handle_any_error(e):                                       # noqa: ANN001
 
 
 # =====================================================================
-# 首页：仪表盘
+# 首页：数据规模证明（课程要求：≥5 表、≥100,000 条）
 # =====================================================================
 @bp.route("/")
 def dashboard():
     try:
         rows, total = dao.table_row_counts()
-        status_stats = dao.appointment_status_stats()
-        dept_rank = dao.report_dept_visit_rank(6)
-        drug_top = dao.report_drug_consumption(6)
         db_ok, db_err = True, None
     except Exception as e:                                     # noqa: BLE001
-        rows, total, status_stats, dept_rank, drug_top = [], 0, [], [], []
+        rows, total = [], 0
         db_ok, db_err = False, str(e)
     return render_template("dashboard.html", rows=rows, total=total,
-                           status_stats=status_stats, dept_rank=dept_rank,
-                           drug_top=drug_top, db_ok=db_ok, db_err=db_err)
+                           db_ok=db_ok, db_err=db_err)
 
 
 # =====================================================================
@@ -159,19 +155,6 @@ def api_register():
         return _err("数据库错误：%s" % str(e))
 
 
-@bp.route("/api/cancel", methods=["POST"])
-def api_cancel():
-    body = request.get_json(silent=True) or {}
-    try:
-        appt_id = int(body.get("appt_id") or 0)
-    except (TypeError, ValueError):
-        return _err("参数格式不正确")
-    try:
-        return _ok(services.cancel_appointment(appt_id))
-    except BizError as e:
-        return _err(str(e))
-
-
 @bp.route("/api/concurrency_demo", methods=["POST"])
 def api_concurrency_demo():
     """多线程并发抢号，证明不会超卖（标志性实践 2）。"""
@@ -190,103 +173,6 @@ def api_concurrency_demo():
         return _ok(result)
     except BizError as e:
         return _err(str(e))
-
-
-@bp.route("/api/appointments")
-def api_appointments():
-    status = request.args.get("status") or None
-    return _ok(dao.list_appointments(status, limit=request.args.get("limit", 30, type=int)))
-
-
-# =====================================================================
-# 医生端：接诊 + 开方（T2 事务）
-# =====================================================================
-@bp.route("/clinic")
-def clinic_page():
-    visit_id = request.args.get("visit_id", type=int)
-    pending = dao.list_appointments("已预约", limit=30)
-    visit = items = pays = None
-    if visit_id:
-        visit, items, pays = dao.get_visit_detail(visit_id)
-    return render_template("clinic.html", pending=pending, visit=visit,
-                           items=items or [], pays=pays or [], visit_id=visit_id)
-
-
-@bp.route("/api/appointment_detail")
-def api_appointment_detail():
-    appt_id = request.args.get("appt_id", type=int)
-    if not appt_id:
-        return _err("缺少 appt_id")
-    info = dao.get_appointment(appt_id)
-    if not info:
-        return _err("预约不存在")
-    return _ok(info)
-
-
-@bp.route("/api/visit", methods=["POST"])
-def api_visit():
-    body = request.get_json(silent=True) or {}
-    try:
-        appt_id = int(body.get("appt_id") or 0)
-    except (TypeError, ValueError):
-        return _err("参数格式不正确")
-    t0 = time.time()
-    try:
-        info = services.create_visit(
-            appt_id,
-            chief_complaint=body.get("chief_complaint") or "",
-            diagnosis=body.get("diagnosis") or "",
-            advice=body.get("advice") or "",
-        )
-        info["elapsed_ms"] = round((time.time() - t0) * 1000, 2)
-        return _ok(info)
-    except BizError as e:
-        return _err(str(e))
-    except pymysql.MySQLError as e:
-        return _err("数据库错误：%s" % str(e))
-
-
-@bp.route("/api/drugs")
-def api_drugs():
-    return _ok(dao.list_drugs(request.args.get("q"), limit=40))
-
-
-@bp.route("/api/prescribe", methods=["POST"])
-def api_prescribe():
-    body = request.get_json(silent=True) or {}
-    try:
-        visit_id = int(body.get("visit_id") or 0)
-    except (TypeError, ValueError):
-        return _err("参数格式不正确")
-    raw_items = body.get("items") or []
-    items = []
-    for it in raw_items:
-        try:
-            items.append((int(it.get("drug_id")), int(it.get("quantity") or 1)))
-        except (TypeError, ValueError):
-            return _err("药品参数格式不正确")
-    t0 = time.time()
-    try:
-        info = services.prescribe(visit_id, items,
-                                  presc_type=body.get("presc_type") or "西药",
-                                  pay_method=body.get("pay_method") or "微信")
-        info["elapsed_ms"] = round((time.time() - t0) * 1000, 2)
-        info["sql"] = (
-            "START TRANSACTION;\n"
-            "SELECT * FROM visit WHERE visit_id=%s FOR UPDATE;\n"
-            "INSERT INTO prescription(visit_id, presc_time, presc_type, status) VALUES (...);\n"
-            " -- 对每一种药品：\n"
-            "SELECT price, stock FROM drug WHERE drug_id=%s FOR UPDATE;   -- 校验库存\n"
-            "INSERT INTO prescription_item(presc_id, drug_id, quantity, usage_note, unit_price) ...;\n"
-            "UPDATE drug SET stock = stock - %s WHERE drug_id=%s;\n"
-            "INSERT INTO payment(visit_id, fee_type, amount, pay_method, status) VALUES (..., '药费', ...);\n"
-            "COMMIT;" % visit_id
-        )
-        return _ok(info)
-    except BizError as e:
-        return _err(str(e))
-    except pymysql.MySQLError as e:
-        return _err("数据库错误：%s" % str(e))
 
 
 # =====================================================================
@@ -481,10 +367,11 @@ def api_ops():
 
 # =====================================================================
 # 索引与性能对比（标志性实践 3）
+# 索引支持：同一查询在「走索引」与「强制绕过索引」两种情况下对比
 # =====================================================================
 PERF_CASES = {
     "appointment_patient": {
-        "title": "按患者查预约（40000 行表）",
+        "title": "按患者查预约记录（appointment，4 万行）",
         "table": "appointment",
         "index": "idx_appt_patient",
         "with_sql": "SELECT SQL_NO_CACHE a.appt_id, a.appt_time, a.queue_no, a.status "
@@ -495,7 +382,7 @@ PERF_CASES = {
         "param": "patient_id",
     },
     "visit_doctor": {
-        "title": "按医生统计就诊量（30051 行表 join doctor）",
+        "title": "按医生统计就诊量（visit，3 万行）",
         "table": "visit",
         "index": "idx_visit_doctor",
         "with_sql": "SELECT SQL_NO_CACHE v.doctor_id, COUNT(*) AS cnt FROM visit v "
@@ -504,15 +391,6 @@ PERF_CASES = {
                        "FROM visit v IGNORE INDEX (idx_visit_doctor) "
                        "WHERE v.doctor_id = %s GROUP BY v.doctor_id",
         "param": "doctor_id",
-    },
-    "drug_name": {
-        "title": "按药品名模糊查询（500 行表，数据量小对比不明显）",
-        "table": "drug",
-        "index": "idx_drug_name",
-        "with_sql": "SELECT SQL_NO_CACHE drug_id, drug_name, price FROM drug WHERE drug_name LIKE %s",
-        "without_sql": "SELECT SQL_NO_CACHE drug_id, drug_name, price FROM drug "
-                       "IGNORE INDEX (idx_drug_name) WHERE drug_name LIKE %s",
-        "param": "keyword",
     },
 }
 
@@ -552,20 +430,15 @@ def api_perf():
         return _err("未知用例")
     case = PERF_CASES[key]
 
-    # 参数
     if case["param"] == "patient_id":
         param = int(body.get("patient_id") or 1234)
         args = (param,)
-    elif case["param"] == "doctor_id":
+    else:
         param = int(body.get("doctor_id") or 5)
         args = (param,)
-    else:
-        param = body.get("keyword") or "阿"
-        args = ("%" + param + "%",)
 
     repeat = min(int(body.get("repeat") or 5), 20)
 
-    # 索引是否存在
     with get_cursor() as cur:
         cur.execute(
             "SELECT COUNT(*) AS c FROM information_schema.statistics "
@@ -598,40 +471,3 @@ def api_perf():
         "with": {"plan": plan_with, "time": time_with, "sql": case["with_sql"]},
         "speedup": speedup,
     })
-
-
-@bp.route("/api/index_toggle", methods=["POST"])
-def api_index_toggle():
-    """真正地删除/重建索引，用于报告里更严格的对照实验。"""
-    body = request.get_json(silent=True) or {}
-    table = body.get("table")
-    index = body.get("index")
-    column = body.get("column")
-    action = body.get("action")
-    if not table or not index or action not in ("drop", "create"):
-        return _err("参数不完整")
-    if action == "create" and not column:
-        return _err("创建索引需要提供 column")
-    try:
-        with transaction() as cur:
-            cur.execute(
-                "SELECT COUNT(*) AS c FROM information_schema.statistics "
-                "WHERE table_schema = DATABASE() AND table_name = %s AND index_name = %s",
-                (table, index),
-            )
-            exists = cur.fetchone()["c"] > 0
-            if action == "drop" and not exists:
-                raise BizError("索引 %s 不存在，无需删除" % index)
-            if action == "create" and exists:
-                raise BizError("索引 %s 已存在" % index)
-            if action == "drop":
-                cur.execute("DROP INDEX %s ON %s" % (index, table))
-                msg = "已删除索引 %s ON %s" % (index, table)
-            else:
-                cur.execute("CREATE INDEX %s ON %s (%s)" % (index, table, column))
-                msg = "已重建索引 %s ON %s(%s)" % (index, table, column)
-        return _ok({"message": msg})
-    except BizError as e:
-        return _err(str(e))
-    except pymysql.MySQLError as e:
-        return _err("操作失败：%s" % str(e))

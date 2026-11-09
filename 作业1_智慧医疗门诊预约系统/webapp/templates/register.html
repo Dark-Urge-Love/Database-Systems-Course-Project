@@ -3,9 +3,9 @@
 
 {% block content %}
 <div class="page-head">
-  <h1>患者挂号 <span class="tag">事务 T1</span></h1>
+  <h1>患者挂号 <span class="tag green">课程要求：事务支持 + 多用户并发</span></h1>
   <p>一次挂号 = 扣减号源 + 生成预约。两步必须在同一个事务里完成，否则会出现「号源扣了但没挂上号」。
-     右侧可以多线程并发抢同一个号源，验证不会超卖。</p>
+     右侧可以多线程并发抢同一个号源，验证不会超卖，并记录访问耗时。</p>
 </div>
 
 <div class="grid grid-sidebar">

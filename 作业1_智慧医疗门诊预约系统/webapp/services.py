@@ -4,9 +4,9 @@ Service 层：业务逻辑与事务
 ------------------------------------------------------------------
 本文件是报告里"标志性实践 2（挂号事务与号源并发控制）"的核心代码。
 
-两个关键事务：
-  T1  患者挂号        —— 扣减号源 + 生成预约，必须原子完成，不能超卖
-  T2  医生接诊开方    —— 生成就诊记录(1-1) + 处方 + 明细(N-M) + 扣药品库存 + 缴费
+核心事务：
+  T1  患者挂号  —— 扣减号源 + 生成预约，必须原子完成，不能超卖
+  T1' 并发抢号  —— 多线程同时挂号，验证 FOR UPDATE 行锁不会超卖
 
 事务要点（报告里可以直接讲）：
   · SELECT ... FOR UPDATE 对目标行加排他锁，第二个并发事务会阻塞等待
@@ -76,29 +76,6 @@ def register(patient_id, schedule_id):
         }
 
 
-def cancel_appointment(appt_id):
-    """取消预约：把号源还回去（同样是事务）。"""
-    with transaction() as cur:
-        cur.execute(
-            "SELECT appt_id, schedule_id, status FROM appointment "
-            "WHERE appt_id = %s FOR UPDATE",
-            (appt_id,),
-        )
-        ap = cur.fetchone()
-        if not ap:
-            raise BizError("预约不存在")
-        if ap["status"] == "已取消":
-            raise BizError("该预约已经是取消状态")
-        if ap["status"] == "已就诊":
-            raise BizError("已就诊的预约不能取消")
-        cur.execute("UPDATE appointment SET status = '已取消' WHERE appt_id = %s", (appt_id,))
-        cur.execute(
-            "UPDATE schedule SET remain_slots = remain_slots + 1 WHERE schedule_id = %s",
-            (ap["schedule_id"],),
-        )
-        return {"appt_id": appt_id, "schedule_id": ap["schedule_id"]}
-
-
 def concurrency_register_demo(schedule_id, thread_count=10, isolation=None):
     """
     并发抢号演示（标志性实践 2 的"超卖对比"证据）。
@@ -163,111 +140,3 @@ def concurrency_register_demo(schedule_id, thread_count=10, isolation=None):
         "success_detail": results["success"][:20],
         "failed_detail": results["failed"][:20],
     }
-
-
-# =====================================================================
-# T2  医生接诊 + 开处方
-# =====================================================================
-def create_visit(appt_id, chief_complaint="", diagnosis="", advice=""):
-    """接诊：把「已预约」的预约变成「已就诊」，同时生成 1-1 的就诊记录。"""
-    with transaction() as cur:
-        cur.execute(
-            "SELECT a.appt_id, a.patient_id, a.status, a.schedule_id, s.doctor_id, s.reg_fee "
-            "FROM appointment a JOIN schedule s ON a.schedule_id = s.schedule_id "
-            "WHERE a.appt_id = %s FOR UPDATE",
-            (appt_id,),
-        )
-        ap = cur.fetchone()
-        if not ap:
-            raise BizError("预约不存在")
-        if ap["status"] != "已预约":
-            raise BizError("该预约当前状态为「%s」，只有「已预约」的才能接诊" % ap["status"])
-
-        # 1-1 联系：一个预约最多一条就诊记录（表上有 UNIQUE(appt_id) 兜底）
-        cur.execute("SELECT visit_id FROM visit WHERE appt_id = %s", (appt_id,))
-        if cur.fetchone():
-            raise BizError("该预约已存在就诊记录（1-1 约束）")
-
-        cur.execute(
-            "INSERT INTO visit (appt_id, patient_id, doctor_id, visit_time, "
-            "chief_complaint, diagnosis, advice) VALUES (%s, %s, %s, NOW(), %s, %s, %s)",
-            (appt_id, ap["patient_id"], ap["doctor_id"],
-             chief_complaint or "发热咳嗽 3 天", diagnosis or "上呼吸道感染", advice or "多饮水，注意休息"),
-        )
-        visit_id = cur.lastrowid
-
-        cur.execute("UPDATE appointment SET status = '已就诊' WHERE appt_id = %s", (appt_id,))
-
-        # 挂号费缴费流水
-        cur.execute(
-            "INSERT INTO payment (visit_id, fee_type, amount, pay_method, status) "
-            "VALUES (%s, '挂号费', %s, '微信', '已支付')",
-            (visit_id, ap["reg_fee"]),
-        )
-        return {"visit_id": visit_id, "appt_id": appt_id, "appt_id_val": ap["appt_id"],
-                "reg_fee": float(ap["reg_fee"]), "doctor_id": ap["doctor_id"]}
-
-
-def prescribe(visit_id, items, presc_type="西药", pay_method="微信"):
-    """
-    开处方事务：处方表 + 明细表 + 扣药品库存 + 药费缴费，四步一体。
-    items: [(drug_id, quantity), ...]
-    """
-    if not items:
-        raise BizError("请至少选择一种药品")
-
-    # 合并同一种药品，并按 drug_id 排序，避免并发开方时出现循环等待死锁
-    merged = {}
-    for drug_id, qty in items:
-        merged[int(drug_id)] = merged.get(int(drug_id), 0) + int(qty)
-
-    with transaction() as cur:
-        cur.execute(
-            "SELECT visit_id, patient_id, doctor_id FROM visit WHERE visit_id = %s FOR UPDATE",
-            (visit_id,),
-        )
-        if not cur.fetchone():
-            raise BizError("就诊记录不存在（visit_id=%s）" % visit_id)
-
-        cur.execute(
-            "INSERT INTO prescription (visit_id, presc_time, presc_type, status) "
-            "VALUES (%s, NOW(), %s, '已缴费')",
-            (visit_id, presc_type),
-        )
-        presc_id = cur.lastrowid
-
-        total = 0.0
-        detail = []
-        for drug_id in sorted(merged):
-            qty = merged[drug_id]
-            cur.execute(
-                "SELECT drug_name, spec, price, stock FROM drug WHERE drug_id = %s FOR UPDATE",
-                (drug_id,),
-            )
-            dr = cur.fetchone()
-            if not dr:
-                raise BizError("药品不存在（drug_id=%s）" % drug_id)
-            if dr["stock"] < qty:
-                raise BizError(
-                    "药品「%s」库存不足：现有 %d，需要 %d —— 事务已整体回滚"
-                    % (dr["drug_name"], dr["stock"], qty)
-                )
-            cur.execute(
-                "INSERT INTO prescription_item (presc_id, drug_id, quantity, usage_note, unit_price) "
-                "VALUES (%s, %s, %s, %s, %s)",
-                (presc_id, drug_id, qty, "遵医嘱", dr["price"]),
-            )
-            cur.execute("UPDATE drug SET stock = stock - %s WHERE drug_id = %s", (qty, drug_id))
-            subtotal = float(dr["price"]) * qty
-            total += subtotal
-            detail.append({"drug_id": drug_id, "drug_name": dr["drug_name"],
-                           "spec": dr["spec"], "quantity": qty,
-                           "unit_price": float(dr["price"]), "subtotal": round(subtotal, 2)})
-
-        cur.execute(
-            "INSERT INTO payment (visit_id, fee_type, amount, pay_method, status) "
-            "VALUES (%s, '药费', %s, %s, '已支付')",
-            (visit_id, round(total, 2), pay_method),
-        )
-        return {"presc_id": presc_id, "visit_id": visit_id, "items": detail,
-                "total": round(total, 2), "pay_method": pay_method}

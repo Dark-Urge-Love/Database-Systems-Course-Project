@@ -7,7 +7,7 @@
       config.py    配置（数据库地址、端口）
       db.py        连接与事务底层
       dao.py       所有 SQL
-      services.py  业务事务（T1 挂号 / T2 开方）
+      services.py  业务事务（挂号 / 并发抢号）
       views.py     页面路由与 Ajax 接口
       templates/   Jinja2 页面
       static/      样式与脚本

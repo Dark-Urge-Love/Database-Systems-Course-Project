@@ -3,7 +3,7 @@
 
 {% block content %}
 <div class="page-head">
-  <h1>索引性能对比 <span class="tag amber">标志性实践 3</span></h1>
+  <h1>索引性能对比 <span class="tag green">课程要求：索引支持</span></h1>
   <p>对同一个查询分别在有索引和"绕过索引"的情况下执行，对比 <b>EXPLAIN 执行计划</b>（扫描类型 / 命中索引 / 预估扫描行数）
      和 <b>实测耗时</b>。绕过索引用的是 MySQL 的 <span class="mono">IGNORE INDEX(...)</span>，
      不破坏数据也不影响其他页面。</p>
@@ -25,8 +25,6 @@
         <input type="number" id="patientId" value="1234" min="1" max="5000"></label>
       <label class="field" id="wrapDoctor" style="display:none"><span>doctor_id</span>
         <input type="number" id="doctorId" value="5" min="1" max="300"></label>
-      <label class="field" id="wrapKeyword" style="display:none"><span>药品名关键字</span>
-        <input type="text" id="keyword" value="阿"></label>
 
       <label class="field"><span>重复执行次数（取平均，排除首次开销）</span>
         <input type="number" id="repeat" value="5" min="1" max="20"></label>
@@ -34,20 +32,6 @@
       <button style="width:100%" onclick="runPerf()" id="btnRun">开始对比测试</button>
       <div class="msg" id="perfMsg"></div>
     </div>
-
-    <div class="card">
-      <h2>更严格的对照：真删索引 <span class="tag red">会改动数据库结构</span></h2>
-      <p class="hint" style="margin-top:0">
-        按 <b>删除 → 测 → 重建 → 再测</b> 的顺序，可以在报告里给出更硬的证据。
-        重建用的列定义与 <span class="mono">schema.sql / index.sql</span> 完全一致，不会有副作用。
-      </p>
-      <div class="btn-row">
-        <button class="warn small" onclick="toggleIndex('drop')">删除当前用例的索引</button>
-        <button class="teal small" onclick="toggleIndex('create')">重建该索引</button>
-      </div>
-      <div class="msg" id="idxMsg"></div>
-    </div>
-  </div>
 
   <div>
     <div class="card">
@@ -62,18 +46,10 @@
 <script>
 const $ = id => document.getElementById(id);
 
-/* 用例 → 表 / 索引 / 列（重建索引用） */
-const META = {
-  appointment_patient: {table: 'appointment', index: 'idx_appt_patient',    column: 'patient_id'},
-  visit_doctor:        {table: 'visit',       index: 'idx_visit_doctor',    column: 'doctor_id'},
-  drug_name:           {table: 'drug',        index: 'idx_drug_name',       column: 'drug_name'}
-};
-
 function syncParam() {
   const p = $('case').selectedOptions[0].dataset.param;
   $('wrapPatient').style.display = (p === 'patient_id') ? '' : 'none';
   $('wrapDoctor').style.display  = (p === 'doctor_id')  ? '' : 'none';
-  $('wrapKeyword').style.display = (p === 'keyword')    ? '' : 'none';
 }
 $('case').addEventListener('change', syncParam);
 syncParam();
@@ -86,7 +62,6 @@ async function runPerf() {
     case: key,
     patient_id: +$('patientId').value,
     doctor_id: +$('doctorId').value,
-    keyword: $('keyword').value,
     repeat: +$('repeat').value
   });
   $('btnRun').disabled = false;
@@ -146,14 +121,5 @@ async function runPerf() {
     </p>`;
 }
 
-async function toggleIndex(action) {
-  const key = $('case').value;
-  const m = META[key];
-  if (action === 'drop' && !confirm('确定要真正删除索引 ' + m.index + ' 吗？\n（删除后可以随时点「重建该索引」恢复，但删除期间其他页面的该查询会变慢）')) return;
-  showMsg($('idxMsg'), '正在处理…', 'info');
-  const r = await postJSON('/api/index_toggle', {table: m.table, index: m.index, column: m.column, action: action});
-  if (!r.ok) { showMsg($('idxMsg'), r.error, 'bad'); return; }
-  showMsg($('idxMsg'), r.data.message + '（可以再点「开始对比测试」，注意观察索引状态）', 'ok');
-}
 </script>
 {% endblock %}

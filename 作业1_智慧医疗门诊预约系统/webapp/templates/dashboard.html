@@ -1,10 +1,11 @@
 {% extends "base.html" %}
-{% block title %}数据总览 · {{ APP_TITLE }}{% endblock %}
+{% block title %}课程要求对照 · {{ APP_TITLE }}{% endblock %}
 
 {% block content %}
 <div class="page-head">
-  <h1>数据总览</h1>
-  <p>本页所有数字都来自 Ubuntu 服务器上的 MySQL，每次打开页面都会实时查询一次。</p>
+  <h1>课程要求对照 <span class="tag">数据规模与功能入口</span></h1>
+  <p>本页把课程作业要求逐条对应到系统中的具体功能，点击「去演示」可直接跳到对应页面。
+     页面上的数字每次打开都实时查询 Ubuntu 服务器上的 MySQL。</p>
 </div>
 
 {% if not db_ok %}
@@ -15,12 +16,12 @@
   <div class="card stat">
     <div class="label">数据总量</div>
     <div class="value blue">{{ '{:,}'.format(total) }}</div>
-    <div class="sub">课程要求 ≥ 100,000 条</div>
+    <div class="sub">要求 ≥ 100,000 条 ✓</div>
   </div>
   <div class="card stat">
     <div class="label">数据表数量</div>
     <div class="value teal">{{ rows|length }}</div>
-    <div class="sub">课程要求 ≥ 5 张</div>
+    <div class="sub">要求 ≥ 5 张 ✓</div>
   </div>
   <div class="card stat">
     <div class="label">数据库服务器</div>
@@ -31,6 +32,52 @@
     <div class="label">服务器主机名 / 版本</div>
     <div class="value" style="font-size:19px">{{ conn.hostname or '—' }}</div>
     <div class="sub">{{ (conn.version or '').split('-')[0] or '未连接' }}</div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px">
+  <h2>课程要求 → 功能对照</h2>
+  <div class="table-wrap" style="max-height:none">
+    <table>
+      <thead>
+        <tr><th style="width:120px">课程要求</th><th style="width:180px">对应功能</th><th>实现方式</th><th style="width:90px">演示</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><span class="tag">基本 1</span></td><td>创建数据表</td>
+            <td>药房采购工作台 第 1 步：<span class="mono">CREATE TABLE drug_quote</span>（供应商报价登记表）</td>
+            <td><a href="/ops">去演示</a></td></tr>
+        <tr><td><span class="tag">基本 2</span></td><td>插入数据</td>
+            <td>第 2 步：<span class="mono">INSERT</span> 录入 8 条报价 + <span class="mono">INSERT…SELECT</span> 新药批量上架</td>
+            <td><a href="/ops">去演示</a></td></tr>
+        <tr><td><span class="tag">基本 3</span></td><td>修改数据</td>
+            <td>第 3 步：<span class="mono">UPDATE…JOIN</span> 按报价调整目录内药品价格</td>
+            <td><a href="/ops">去演示</a></td></tr>
+        <tr><td><span class="tag">基本 4</span></td><td>删除数据</td>
+            <td>第 4 步：<span class="mono">DELETE…LEFT JOIN</span> 淘汰滞销药品（外键保护受引用数据）</td>
+            <td><a href="/ops">去演示</a></td></tr>
+        <tr><td><span class="tag">基本 5</span></td><td>删除数据表</td>
+            <td>第 5 步：<span class="mono">DROP TABLE drug_quote</span> 报价归档后销毁临时表</td>
+            <td><a href="/ops">去演示</a></td></tr>
+        <tr><td><span class="tag">基本 6</span></td><td>跨数据表操作</td>
+            <td>运营报表：医生开药金额 Top10（5 表 JOIN）、患者完整就诊流水（7 表 JOIN）</td>
+            <td><a href="/ops">去演示</a></td></tr>
+        <tr><td><span class="tag green">额外 1</span></td><td>事务支持</td>
+            <td>患者挂号：<span class="mono">SELECT…FOR UPDATE</span> + INSERT + UPDATE 三语句同事务，失败整体回滚</td>
+            <td><a href="/register">去演示</a></td></tr>
+        <tr><td><span class="tag green">额外 2</span></td><td>索引支持</td>
+            <td>索引性能对比：同一查询走索引 / <span class="mono">IGNORE INDEX</span> 全表扫描，对比 EXPLAIN 与耗时</td>
+            <td><a href="/perf">去演示</a></td></tr>
+        <tr><td><span class="tag green">额外 3</span></td><td>多用户并发 + 访问性能</td>
+            <td>挂号页「并发抢号」：10 线程同时抢一个号源，记录成功数/耗时；<span class="mono">tools/concurrency_test.py</span> 输出 TPS、P95 到 CSV</td>
+            <td><a href="/register">去演示</a></td></tr>
+        <tr><td><span class="tag amber">数据量</span></td><td>≥5 表 / ≥10 万条</td>
+            <td>10 张表、22 万+ 条初始数据（见下方各表行数）</td>
+            <td>本页</td></tr>
+        <tr><td><span class="tag amber">数据关系</span></td><td>多种数据关系</td>
+            <td>科室→医生→排班→预约（1-N）、预约↔就诊（1-1）、处方↔药品（N-M 经明细表）</td>
+            <td>见设计文档</td></tr>
+      </tbody>
+    </table>
   </div>
 </div>
 
@@ -49,70 +96,17 @@
     </div>
   </div>
 
-  <div>
-    <div class="card">
-      <h2>连接详情</h2>
-      <dl class="kv">
-        <dt>服务器地址</dt><dd class="mono">{{ conn.host }}:{{ conn.port }}</dd>
-        <dt>登录账号</dt><dd class="mono">{{ conn.user }}@'%'</dd>
-        <dt>目标数据库</dt><dd class="mono">{{ conn.db }}</dd>
-        <dt>MySQL 版本</dt><dd>{{ conn.version or '—' }}</dd>
-        <dt>服务器主机名</dt><dd>{{ conn.hostname or '—' }}</dd>
-        <dt>数据目录</dt><dd class="mono" style="font-size:11px;word-break:break-all">{{ conn.datadir or '—' }}</dd>
-      </dl>
-      <p class="hint" style="margin-top:10px">上面两项（主机名、数据目录）可以证明数据确实存放在 Linux 服务器上，不是本机文件。</p>
-    </div>
-
-    <div class="card">
-      <h2>预约状态分布</h2>
-      {% if status_stats %}
-      {% set maxc = status_stats[0].cnt %}
-      {% for s in status_stats %}
-      <div class="bar-row">
-        <div>
-          {% if s.status == '已就诊' %}<span class="tag green">{{ s.status }}</span>
-          {% elif s.status == '已预约' %}<span class="tag">{{ s.status }}</span>
-          {% elif s.status == '已取消' %}<span class="tag gray">{{ s.status }}</span>
-          {% else %}<span class="tag amber">{{ s.status }}</span>{% endif %}
-        </div>
-        <div class="bar"><i class="fast" style="width:{{ (s.cnt / maxc * 100)|round(1) }}%"></i></div>
-        <div class="bar-num">{{ '{:,}'.format(s.cnt) }}</div>
-      </div>
-      {% endfor %}
-      {% else %}<div class="center-empty">暂无数据</div>{% endif %}
-    </div>
-  </div>
-</div>
-
-<div class="grid grid-2" style="margin-top:16px">
   <div class="card">
-    <h2>科室就诊量 Top10 <span class="tag teal">3 表 join</span></h2>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>科室</th><th class="num">就诊量</th><th class="num">接诊医生数</th></tr></thead>
-        <tbody>
-          {% for r in dept_rank %}
-          <tr><td>{{ r['科室'] }}</td><td class="num">{{ '{:,}'.format(r['就诊量']) }}</td><td class="num">{{ r['接诊医生数'] }}</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <div class="card">
-    <h2>药品消耗 Top10 <span class="tag teal">3 表 join</span></h2>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>药品</th><th>规格</th><th class="num">消耗量</th><th class="num">销售额</th></tr></thead>
-        <tbody>
-          {% for r in drug_top %}
-          <tr><td>{{ r['药品'] }}</td><td>{{ r['规格'] }}</td>
-              <td class="num">{{ r['总消耗量'] }}</td>
-              <td class="num">¥{{ '%.2f'|format(r['总销售额']) }}</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+    <h2>连接详情</h2>
+    <dl class="kv">
+      <dt>服务器地址</dt><dd class="mono">{{ conn.host }}:{{ conn.port }}</dd>
+      <dt>登录账号</dt><dd class="mono">{{ conn.user }}@'%'</dd>
+      <dt>目标数据库</dt><dd class="mono">{{ conn.db }}</dd>
+      <dt>MySQL 版本</dt><dd>{{ conn.version or '—' }}</dd>
+      <dt>服务器主机名</dt><dd>{{ conn.hostname or '—' }}</dd>
+      <dt>数据目录</dt><dd class="mono" style="font-size:11px;word-break:break-all">{{ conn.datadir or '—' }}</dd>
+    </dl>
+    <p class="hint" style="margin-top:10px">主机名与数据目录（Linux 路径）可以证明数据确实存放在服务器上，不是本机文件。</p>
   </div>
 </div>
 {% endblock %}

@@ -64,15 +64,6 @@ def server_info():
     )
 
 
-def appointment_status_stats():
-    return query_all(
-        "SELECT status, COUNT(*) AS cnt FROM appointment GROUP BY status ORDER BY cnt DESC"
-    )
-
-
-# =====================================================================
-# 挂号相关
-# =====================================================================
 def list_departments():
     return query_all(
         "SELECT dept_id, dept_name, dept_type, location FROM department "
@@ -105,16 +96,6 @@ def list_schedules(doctor_id, only_available=True, limit=60):
     return query_all(sql, [doctor_id, limit])
 
 
-def get_schedule(schedule_id):
-    return query_one(
-        "SELECT s.*, d.doctor_name, d.dept_id, dp.dept_name "
-        "FROM schedule s JOIN doctor d ON s.doctor_id = d.doctor_id "
-        "JOIN department dp ON d.dept_id = dp.dept_id "
-        "WHERE s.schedule_id = %s",
-        [schedule_id],
-    )
-
-
 def list_patients(keyword=None, limit=50):
     if keyword:
         return query_all(
@@ -126,102 +107,6 @@ def list_patients(keyword=None, limit=50):
     return query_all(
         "SELECT patient_id, patient_name, gender, phone, medical_card_no "
         "FROM patient ORDER BY patient_id LIMIT %s",
-        [limit],
-    )
-
-
-def list_appointments(status=None, limit=50):
-    sql = ("SELECT a.appt_id, a.patient_id, p.patient_name, a.schedule_id, "
-           "a.appt_time, a.queue_no, a.status, s.work_date, s.period, s.reg_fee, "
-           "d.doctor_id, d.doctor_name, dp.dept_name "
-           "FROM appointment a "
-           "JOIN patient p ON a.patient_id = p.patient_id "
-           "JOIN schedule s ON a.schedule_id = s.schedule_id "
-           "JOIN doctor d ON s.doctor_id = d.doctor_id "
-           "JOIN department dp ON d.dept_id = dp.dept_id ")
-    args = []
-    if status:
-        sql += "WHERE a.status = %s "
-        args.append(status)
-    sql += "ORDER BY a.appt_id DESC LIMIT %s"
-    args.append(limit)
-    return query_all(sql, args)
-
-
-def get_appointment(appt_id):
-    return query_one(
-        "SELECT a.appt_id, a.patient_id, p.patient_name, p.gender, a.schedule_id, "
-        "a.appt_time, a.queue_no, a.status, s.work_date, s.period, s.reg_fee, "
-        "s.doctor_id, d.doctor_name, dp.dept_name, v.visit_id "
-        "FROM appointment a "
-        "JOIN patient p ON a.patient_id = p.patient_id "
-        "JOIN schedule s ON a.schedule_id = s.schedule_id "
-        "JOIN doctor d ON s.doctor_id = d.doctor_id "
-        "JOIN department dp ON d.dept_id = dp.dept_id "
-        "LEFT JOIN visit v ON v.appt_id = a.appt_id "
-        "WHERE a.appt_id = %s",
-        [appt_id],
-    )
-
-
-# =====================================================================
-# 药品 / 就诊 / 处方
-# =====================================================================
-def list_drugs(keyword=None, limit=50):
-    if keyword:
-        return query_all(
-            "SELECT drug_id, drug_name, spec, unit, price, stock, is_rx "
-            "FROM drug WHERE drug_name LIKE %s AND status = 1 "
-            "ORDER BY drug_id LIMIT %s",
-            ["%" + keyword + "%", limit],
-        )
-    return query_all(
-        "SELECT drug_id, drug_name, spec, unit, price, stock, is_rx "
-        "FROM drug WHERE status = 1 ORDER BY drug_id LIMIT %s",
-        [limit],
-    )
-
-
-def get_visit_detail(visit_id):
-    visit = query_one(
-        "SELECT v.*, p.patient_name, p.gender, p.phone, d.doctor_name, dp.dept_name "
-        "FROM visit v JOIN patient p ON v.patient_id = p.patient_id "
-        "JOIN doctor d ON v.doctor_id = d.doctor_id "
-        "JOIN department dp ON d.dept_id = dp.dept_id "
-        "WHERE v.visit_id = %s",
-        [visit_id],
-    )
-    if not visit:
-        return None, [], []
-    items = query_all(
-        "SELECT i.item_id, i.drug_id, dr.drug_name, dr.spec, i.quantity, "
-        "i.unit_price, (i.quantity * i.unit_price) AS subtotal, i.usage_note "
-        "FROM prescription_item i "
-        "JOIN prescription pr ON i.presc_id = pr.presc_id "
-        "JOIN drug dr ON i.drug_id = dr.drug_id "
-        "WHERE pr.visit_id = %s ORDER BY i.item_id",
-        [visit_id],
-    )
-    pays = query_all(
-        "SELECT pay_id, fee_type, amount, pay_method, pay_time, status "
-        "FROM payment WHERE visit_id = %s ORDER BY pay_id",
-        [visit_id],
-    )
-    return visit, items, pays
-
-
-# =====================================================================
-# 标志性实践 5：跨表复杂查询（≥3 表 join）
-# =====================================================================
-def report_dept_visit_rank(limit=10):
-    """科室就诊量排行：visit + doctor + department（3 表）"""
-    return query_all(
-        "SELECT dp.dept_name AS 科室, COUNT(*) AS 就诊量, "
-        "COUNT(DISTINCT v.doctor_id) AS 接诊医生数 "
-        "FROM visit v "
-        "JOIN doctor d ON v.doctor_id = d.doctor_id "
-        "JOIN department dp ON d.dept_id = dp.dept_id "
-        "GROUP BY dp.dept_name ORDER BY 就诊量 DESC LIMIT %s",
         [limit],
     )
 
@@ -239,21 +124,6 @@ def report_doctor_revenue(limit=10):
         "JOIN department dp ON d.dept_id = dp.dept_id "
         "GROUP BY d.doctor_id, d.doctor_name, dp.dept_name "
         "ORDER BY 开药总额 DESC LIMIT %s",
-        [limit],
-    )
-
-
-def report_drug_consumption(limit=10):
-    """药品消耗统计：prescription_item + drug + prescription（3 表）"""
-    return query_all(
-        "SELECT dr.drug_name AS 药品, dr.spec AS 规格, "
-        "SUM(i.quantity) AS 总消耗量, "
-        "ROUND(SUM(i.quantity * i.unit_price), 2) AS 总销售额 "
-        "FROM prescription_item i "
-        "JOIN drug dr ON i.drug_id = dr.drug_id "
-        "JOIN prescription pr ON i.presc_id = pr.presc_id "
-        "GROUP BY dr.drug_id, dr.drug_name, dr.spec "
-        "ORDER BY 总消耗量 DESC LIMIT %s",
         [limit],
     )
 
