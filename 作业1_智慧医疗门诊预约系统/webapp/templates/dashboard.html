@@ -4,8 +4,7 @@
 {% block content %}
 <div class="page-head">
   <h1>课程要求对照 <span class="tag">数据规模与功能入口</span></h1>
-  <p>本页把课程作业要求逐条对应到系统中的具体功能，点击「去演示」可直接跳到对应页面。
-     页面上的数字每次打开都实时查询 Ubuntu 服务器上的 MySQL。</p>
+  <p>课程要求逐条对应到功能入口；页面数字每次打开都实时查询服务器上的 MySQL。</p>
 </div>
 
 {% if not db_ok %}
@@ -44,23 +43,23 @@
       </thead>
       <tbody>
         <tr><td><span class="tag">基本 1</span></td><td>创建数据表</td>
-            <td>数据管理台：自己填表名和字段（名称/类型/是否必填），点「创建表」执行 <span class="mono">CREATE TABLE</span></td>
-            <td><a href="/ops">去操作</a></td></tr>
+            <td>药房业务 →「业务档案」→ 新建业务档案：填写档案名称与需要记录的信息（如供应商名称、结算金额），系统据此建立数据表</td>
+            <td><a href="/ops?tab=archive">去操作</a></td></tr>
         <tr><td><span class="tag">基本 2</span></td><td>插入数据</td>
-            <td>数据管理台：选中任意表 →「插入数据」→ 按字段填表单写入一行（药品入库、患者建档、自建表录入）</td>
+            <td>库房新到一种药 →「新药入库」填写名称/规格/厂家/单价/库存；或在业务档案里「录入记录」（如登记一家供应商）</td>
             <td><a href="/ops">去操作</a></td></tr>
         <tr><td><span class="tag">基本 3</span></td><td>修改数据</td>
-            <td>数据管理台：点某行「改」→ 表单回填 → 保存，执行 <span class="mono">UPDATE … WHERE 主键</span>（如药品调价）</td>
+            <td>药品调价或库存盘点 → 药品目录点「编辑」修改单价、库存、在用状态，保存后立即生效</td>
             <td><a href="/ops">去操作</a></td></tr>
         <tr><td><span class="tag">基本 4</span></td><td>删除数据</td>
-            <td>数据管理台：点某行「删」→ 确认后 <span class="mono">DELETE</span>；被引用的行会收到外键保护提示</td>
+            <td>录入错误的品种 → 药品目录点「删除」；已开过处方的药品会被拦下并提示改为停用（业务规则）</td>
             <td><a href="/ops">去操作</a></td></tr>
         <tr><td><span class="tag">基本 5</span></td><td>删除数据表</td>
-            <td>数据管理台：在「我创建的表」里点「删表」，执行 <span class="mono">DROP TABLE</span>（业务表受保护不可删）</td>
-            <td><a href="/ops">去操作</a></td></tr>
+            <td>某类档案不再使用 → 在「业务档案」里删除该档案，其记录一并清理（核心业务档案受保护）</td>
+            <td><a href="/ops?tab=archive">去操作</a></td></tr>
         <tr><td><span class="tag">基本 6</span></td><td>跨数据表操作</td>
-            <td>数据管理台底部报表：医生开药金额 Top10（5 表 JOIN）、患者完整就诊流水（7 表 JOIN）</td>
-            <td><a href="/ops">去操作</a></td></tr>
+            <td>「运营报表」：医生开药金额排行（5 表关联）、患者完整就诊流水（7 表关联）</td>
+            <td><a href="/ops?tab=report">去操作</a></td></tr>
         <tr><td><span class="tag green">额外 1</span></td><td>事务支持</td>
             <td>患者挂号：<span class="mono">SELECT…FOR UPDATE</span> + INSERT + UPDATE 三语句同事务，失败整体回滚</td>
             <td><a href="/register">去演示</a></td></tr>
@@ -86,10 +85,10 @@
     <h2>各表数据量 <span class="tag">{{ '{:,}'.format(total) }} 条</span></h2>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>表名</th><th>中文名</th><th class="num">行数</th></tr></thead>
+        <thead><tr><th>业务数据</th><th>对应表</th><th class="num">行数</th></tr></thead>
         <tbody>
           {% for r in rows %}
-          <tr><td class="mono">{{ r.table }}</td><td>{{ r.cn }}</td><td class="num">{{ '{:,}'.format(r.rows) }}</td></tr>
+          <tr><td>{{ r.cn }}</td><td class="mono" style="color:var(--muted)">{{ r.table }}</td><td class="num">{{ '{:,}'.format(r.rows) }}</td></tr>
           {% endfor %}
         </tbody>
       </table>

@@ -59,7 +59,7 @@ def table_row_counts():
 def server_info():
     """取服务器版本 / 当前连接身份，用于证明"连的是远程 Linux 服务器"。"""
     return query_one(
-        "SELECT VERSION() AS version, CURRENT_USER() AS current_user, "
+        "SELECT VERSION() AS version, CURRENT_USER() AS db_user, "
         "@@hostname AS hostname, @@port AS port, @@datadir AS datadir"
     )
 
@@ -132,9 +132,9 @@ def report_patient_flow(patient_id, limit=20):
     """单个患者的完整就诊流水：patient + appointment + visit + prescription
        + prescription_item + drug + doctor（7 表 join）"""
     return query_all(
-        "SELECT a.appt_id, a.appt_time, a.status AS 预约状态, "
+        "SELECT a.appt_id AS 预约号, a.appt_time AS 预约时间, a.status AS 预约状态, "
         "d.doctor_name AS 医生, dp.dept_name AS 科室, "
-        "v.visit_id, v.diagnosis AS 诊断, "
+        "v.visit_id AS 就诊号, v.diagnosis AS 诊断, "
         "dr.drug_name AS 药品, i.quantity AS 数量, "
         "ROUND(i.quantity * i.unit_price, 2) AS 金额 "
         "FROM appointment a "
@@ -150,21 +150,3 @@ def report_patient_flow(patient_id, limit=20):
         "ORDER BY a.appt_time DESC, i.item_id LIMIT %s",
         [patient_id, limit],
     )
-
-
-def list_all_tables():
-    """数据库中所有表（含用户自建的演示表）+ 精确行数，用于左侧数据目录。"""
-    rows = query_all(
-        "SELECT table_name FROM information_schema.tables "
-        "WHERE table_schema = DATABASE() ORDER BY table_name"
-    )
-    result = []
-    for r in rows:
-        t = r["table_name"] if "table_name" in r else r["TABLE_NAME"]
-        try:
-            n = query_one("SELECT COUNT(*) AS c FROM `%s`" % t)["c"]
-        except Exception:                                      # noqa: BLE001
-            n = None
-        result.append({"table": t, "cn": TABLE_CN.get(t) or "自建表",
-                       "rows": n})
-    return result

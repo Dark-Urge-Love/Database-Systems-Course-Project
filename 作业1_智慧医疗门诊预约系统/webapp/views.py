@@ -6,8 +6,10 @@ Views 层：页面路由与 Ajax 接口
 访问 Linux 服务器上的 MySQL。页面顶部固定显示当前连接的目标服务器地址，
 方便答辩时直接证明"数据不在本机"。
 """
+import datetime
 import re
 import time
+import uuid
 import traceback
 
 import pymysql
@@ -177,241 +179,383 @@ def api_concurrency_demo():
 
 
 # =====================================================================
-# 数据管理台：用户亲自建表 / 插入 / 修改 / 删除 / 删表 / 跨表查询
+# 药房业务：药品目录维护 + 业务档案
 # ------------------------------------------------------------------
-# 标识符（表名/列名）无法参数化，统一走正则白名单校验后再拼入 SQL；
-# 值全部用 %s 参数化传入；删表只允许删自建表，业务表受保护。
+# 面向业务：界面上只有「药品名称」「供应商档案」这类业务对象，
+# 表名与列名由系统内部生成（archive_xxx / f1..fn），用户无需也不应感知。
+# 标识符无法参数化，统一走正则白名单校验；值全部 %s 参数化传入。
 # =====================================================================
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
-_TYPE_MAP = {
-    "INT": "INT",
-    "TINYINT": "TINYINT",
-    "DECIMAL(10,2)": "DECIMAL(10,2)",
-    "VARCHAR(50)": "VARCHAR(50)",
-    "VARCHAR(100)": "VARCHAR(100)",
-    "VARCHAR(255)": "VARCHAR(255)",
-    "TEXT": "TEXT",
-    "DATE": "DATE",
-    "DATETIME": "DATETIME",
-}
-
-BUSINESS_TABLES = {"drug": "药品目录", "patient": "患者档案"}
+_ARCHIVE_PREFIX = "archive_"
 CORE_TABLES = {"department", "doctor", "patient", "schedule", "appointment",
                "visit", "prescription", "drug", "prescription_item", "payment"}
+
+# 业务档案可选的字段类型：key → (界面文案, 物理类型)
+ARCHIVE_TYPES = {
+    "text":  ("文本", "VARCHAR(100)"),
+    "long":  ("长文本", "VARCHAR(255)"),
+    "int":   ("整数", "INT"),
+    "money": ("金额", "DECIMAL(10,2)"),
+    "date":  ("日期", "DATE"),
+}
 
 
 def _check_ident(name):
     if not name or not _IDENT.match(name):
-        raise BizError("名称不合法：%s（只允许字母、数字、下划线，且以字母或下划线开头）" % name)
+        raise BizError("名称不合法")
 
 
-def _list_tables(cur):
-    cur.execute(
-        "SELECT table_name FROM information_schema.tables "
-        "WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE' "
-        "ORDER BY table_name")
-    return [r.get("TABLE_NAME") or r.get("table_name") for r in cur.fetchall()]
+def _fmt_value(v):
+    """日期/时间转成界面友好的字符串。"""
+    if isinstance(v, datetime.datetime):
+        return v.strftime("%Y-%m-%d %H:%M")
+    if isinstance(v, datetime.date):
+        return v.strftime("%Y-%m-%d")
+    return v
 
 
-def _table_meta(cur, table):
-    """列元数据：列名 / 类型 / 是否可空 / 是否主键 / 是否自增。"""
-    _check_ident(table)
-    cur.execute(
-        "SELECT column_name, column_type, is_nullable, column_key, extra "
-        "FROM information_schema.columns "
-        "WHERE table_schema = DATABASE() AND table_name = %s ORDER BY ordinal_position",
-        (table,))
-    cols = []
-    for r in cur.fetchall():
-        name = r.get("COLUMN_NAME") or r.get("column_name")
-        cols.append({
-            "name": name,
-            "type": (r.get("COLUMN_TYPE") or r.get("column_type") or "").upper(),
-            "nullable": (r.get("IS_NULLABLE") or r.get("is_nullable")) == "YES",
-            "pk": (r.get("COLUMN_KEY") or r.get("column_key") or "") == "PRI",
-            "auto": "auto_increment" in (r.get("EXTRA") or r.get("extra") or "").lower(),
-        })
-    if not cols:
-        raise BizError("表 %s 不存在" % table)
-    pk = next((c["name"] for c in cols if c["pk"]), cols[0]["name"])
-    return cols, pk
-
-
-def _clean_values(cols, raw):
-    """按真实列过滤提交的值；可空列留空按 NULL 处理。"""
-    by_name = {c["name"]: c for c in cols}
-    unknown = [k for k in raw if k not in by_name]
-    if unknown:
-        raise BizError("未知列：%s" % ", ".join(unknown))
-    out = {}
-    for k, v in raw.items():
-        c = by_name[k]
-        if c["auto"]:
-            continue
-        if v is None or (isinstance(v, str) and v.strip() == ""):
-            out[k] = None if c["nullable"] else ""
-        else:
-            out[k] = v
-    return out
-
-
-@bp.route("/ops")
-def ops_page():
-    return render_template("ops.html")
-
-
-@bp.route("/api/crud/tables")
-def api_crud_tables():
-    with get_cursor() as cur:
-        tables = _list_tables(cur)
-    business = [{"name": t, "cn": BUSINESS_TABLES[t]} for t in tables if t in BUSINESS_TABLES]
-    mine = [t for t in tables if t not in CORE_TABLES]
-    return _ok({"business": business, "mine": mine})
-
-
-@bp.route("/api/crud/table")
-def api_crud_table():
-    table = request.args.get("name") or ""
-    try:
-        with get_cursor() as cur:
-            cols, pk = _table_meta(cur, table)
-            cur.execute("SELECT * FROM `{}` ORDER BY `{}` DESC LIMIT 50".format(table, pk))
-            rows = cur.fetchall()
-        return _ok({"columns": cols, "pk": pk, "rows": rows})
-    except BizError as e:
-        return _err(str(e))
-
-
-@bp.route("/api/crud/create_table", methods=["POST"])
-def api_crud_create_table():
-    body = request.get_json(silent=True) or {}
-    table = (body.get("name") or "").strip()
-    sql = None
-    try:
-        _check_ident(table)
-        raw_cols = body.get("columns") or []
-        if len(raw_cols) < 1:
-            return _err("至少需要一个字段")
-        defs = []
-        seen = set()
-        for c in raw_cols:
-            cname = (c.get("name") or "").strip()
-            _check_ident(cname)
-            if cname.lower() == "id":
-                return _err("字段名不能叫 id（系统自动生成主键 id）")
-            if cname in seen:
-                return _err("字段重复：%s" % cname)
-            seen.add(cname)
-            t = _TYPE_MAP.get(c.get("type") or "")
-            if not t:
-                return _err("不支持的字段类型：%s" % c.get("type"))
-            defs.append("`%s` %s%s" % (cname, t, " NOT NULL" if c.get("notnull") else ""))
-        sql = ("CREATE TABLE `{}` (id INT AUTO_INCREMENT PRIMARY KEY, {}) "
-               "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4".format(table, ", ".join(defs)))
-        with get_cursor(commit=True) as cur:
-            cur.execute(sql)
-        return _ok({"sql": sql, "message": "表 {} 已创建".format(table)})
-    except BizError as e:
-        return _err(str(e))
-    except pymysql.MySQLError as e:
-        return _err(_friendly(e, sql))
-
-
-@bp.route("/api/crud/drop_table", methods=["POST"])
-def api_crud_drop_table():
-    body = request.get_json(silent=True) or {}
-    table = body.get("table") or ""
-    try:
-        _check_ident(table)
-        if table in CORE_TABLES:
-            return _err("业务表 {} 受保护，只能删除自己创建的表".format(table))
-        sql = "DROP TABLE IF EXISTS `{}`".format(table)
-        with get_cursor(commit=True) as cur:
-            cur.execute(sql)
-        return _ok({"sql": sql, "message": "表 {} 已删除".format(table)})
-    except BizError as e:
-        return _err(str(e))
-    except pymysql.MySQLError as e:
-        return _err(_friendly(e))
-
-
-@bp.route("/api/crud/insert", methods=["POST"])
-def api_crud_insert():
-    body = request.get_json(silent=True) or {}
-    table = body.get("table") or ""
-    try:
-        with get_cursor(commit=True) as cur:
-            cols, pk = _table_meta(cur, table)
-            values = _clean_values(cols, body.get("values") or {})
-            keys = list(values.keys())
-            if not keys:
-                return _err("没有可写入的字段")
-            sql = "INSERT INTO `{}` ({}) VALUES ({})".format(
-                table,
-                ", ".join("`%s`" % k for k in keys),
-                ", ".join(["%s"] * len(keys)))
-            args = [values[k] for k in keys]
-            cur.execute(sql, args)
-            new_id = cur.lastrowid
-        return _ok({"sql": sql, "params": args, "id": new_id, "rowcount": 1})
-    except pymysql.MySQLError as e:
-        return _err(_friendly(e))
-
-
-@bp.route("/api/crud/update", methods=["POST"])
-def api_crud_update():
-    body = request.get_json(silent=True) or {}
-    table = body.get("table") or ""
-    try:
-        with get_cursor(commit=True) as cur:
-            cols, pk = _table_meta(cur, table)
-            values = _clean_values(cols, body.get("values") or {})
-            keys = list(values.keys())
-            if not keys:
-                return _err("没有要修改的字段")
-            pk_value = body.get("pk_value")
-            sql = "UPDATE `{}` SET {} WHERE `{}` = %s".format(
-                table, ", ".join("`%s` = %%s" % k for k in keys), pk)
-            args = [values[k] for k in keys] + [pk_value]
-            cur.execute(sql, args)
-        return _ok({"sql": sql, "params": args, "rowcount": cur.rowcount})
-    except pymysql.MySQLError as e:
-        return _err(_friendly(e))
-
-
-@bp.route("/api/crud/delete", methods=["POST"])
-def api_crud_delete():
-    body = request.get_json(silent=True) or {}
-    table = body.get("table") or ""
-    try:
-        with get_cursor(commit=True) as cur:
-            cols, pk = _table_meta(cur, table)
-            sql = "DELETE FROM `{}` WHERE `{}` = %s".format(table, pk)
-            args = [body.get("pk_value")]
-            cur.execute(sql, args)
-        return _ok({"sql": sql, "params": args, "rowcount": cur.rowcount})
-    except pymysql.MySQLError as e:
-        return _err(_friendly(e))
+def _fmt_row(row):
+    return {k: _fmt_value(v) for k, v in row.items()}
 
 
 def _friendly(e, sql=None):
-    """把常见 MySQL 报错翻译成人话（其余原样返回）。"""
+    """把常见 MySQL 报错翻译成业务语言（其余原样返回）。"""
     code = e.args[0] if e.args else None
     msgs = {
-        1451: "该记录正被其他表引用（外键约束保护），不能删除。先删除引用它的记录再试。",
-        1452: "写入失败：引用的记录不存在（外键约束）。",
-        1062: "唯一字段冲突：已有相同主键/唯一值的记录。",
-        1050: "该表已存在，换一个表名。",
-        1146: "表不存在。",
-        1049: "数据库不存在。",
-        1406: "数据太长，超出字段长度限制。",
-        1265: "数据格式与字段类型不匹配（如向数字字段写了文字）。",
-        1292: "日期格式不正确，DATE 请用 2026-01-31 这样的格式。",
+        1451: "该记录正被其他业务引用，不能删除。",
+        1452: "关联的业务数据不存在。",
+        1062: "该记录已存在，请勿重复录入。",
+        1050: "该表已存在。",
+        1146: "数据表不存在。",
+        1406: "内容太长，超出字段允许的长度。",
+        1265: "内容格式与字段类型不匹配。",
+        1292: "日期格式不正确，请使用 2026-01-31 这样的格式。",
     }
     msg = msgs.get(code, "数据库错误（%s）：%s" % (code, str(e)))
     if sql:
         msg += "\n执行的 SQL：" + sql
     return msg
+
+
+# ---------------------------------------------------------------------
+# 药品目录：新药入库（INSERT）/ 信息维护（UPDATE）/ 停用删除（DELETE）
+# ---------------------------------------------------------------------
+DRUG_FIELDS = [
+    {"key": "name", "label": "药品名称", "type": "text", "required": True},
+    {"key": "spec", "label": "规格", "type": "text"},
+    {"key": "unit", "label": "单位", "type": "text"},
+    {"key": "maker", "label": "生产厂家", "type": "text"},
+    {"key": "price", "label": "单价（元）", "type": "money", "required": True},
+    {"key": "stock", "label": "库存数量", "type": "int", "required": True},
+    {"key": "rx", "label": "处方药", "type": "bool"},
+]
+
+
+def _drug_payload(body):
+    """校验并整理药品表单，返回 (字段字典, 错误信息)。"""
+    data = {}
+    name = (body.get("name") or "").strip()
+    if not name:
+        return None, "请填写药品名称"
+    if len(name) > 100:
+        return None, "药品名称不能超过 100 字"
+    data["drug_name"] = name
+    data["spec"] = (body.get("spec") or "").strip() or None
+    data["unit"] = (body.get("unit") or "").strip() or None
+    data["manufacturer"] = (body.get("maker") or "").strip() or None
+
+    try:
+        price = float(body.get("price"))
+    except (TypeError, ValueError):
+        return None, "单价请填写数字"
+    if price < 0:
+        return None, "单价不能为负数"
+    data["price"] = round(price, 2)
+
+    try:
+        stock = int(body.get("stock"))
+    except (TypeError, ValueError):
+        return None, "库存数量请填写整数"
+    if stock < 0:
+        return None, "库存数量不能为负数"
+    data["stock"] = stock
+
+    data["is_rx"] = 1 if body.get("rx") else 0
+    return data, None
+
+
+def _drug_row(r):
+    """数据库行 → 业务对象（界面只认这些字段）。"""
+    return {
+        "id": r["drug_id"],
+        "name": r["drug_name"],
+        "spec": r["spec"] or "",
+        "unit": r["unit"] or "",
+        "maker": r["manufacturer"] or "",
+        "price": float(r["price"]),
+        "stock": r["stock"],
+        "rx": bool(r["is_rx"]),
+        "status": r["status"],
+    }
+
+
+@bp.route("/api/pharmacy/drugs")
+def api_drugs():
+    q = (request.args.get("q") or "").strip()
+    sql = ("SELECT drug_id, drug_name, spec, unit, manufacturer, price, stock, is_rx, status "
+           "FROM drug")
+    args = []
+    if q:
+        sql += " WHERE drug_name LIKE %s OR manufacturer LIKE %s"
+        args = ["%" + q + "%", "%" + q + "%"]
+    sql += " ORDER BY drug_id DESC LIMIT 200"
+    try:
+        with get_cursor() as cur:
+            cur.execute(sql, args)
+            rows = [_drug_row(r) for r in cur.fetchall()]
+        return _ok({"rows": rows, "fields": DRUG_FIELDS,
+                    "total": len(rows), "keyword": q})
+    except pymysql.MySQLError as e:
+        return _err(_friendly(e))
+
+
+@bp.route("/api/pharmacy/drugs", methods=["POST"])
+def api_drug_create():
+    body = request.get_json(silent=True) or {}
+    data, err = _drug_payload(body)
+    if err:
+        return _err(err)
+    try:
+        with get_cursor(commit=True) as cur:
+            cur.execute(
+                "SELECT drug_id FROM drug WHERE drug_name = %s "
+                "AND IFNULL(spec, '') = IFNULL(%s, '') LIMIT 1",
+                (data["drug_name"], data["spec"]))
+            if cur.fetchone():
+                return _err("药品目录中已有同名同规格的品种，请直接在原记录上调整库存或价格")
+            cols = list(data.keys())
+            sql = ("INSERT INTO drug (%s) VALUES (%s)"
+                   % (", ".join(cols), ", ".join(["%s"] * len(cols))))
+            cur.execute(sql, [data[c] for c in cols])
+            new_id = cur.lastrowid
+        return _ok({"id": new_id, "message": "已入库：%s" % data["drug_name"], "sql": sql})
+    except pymysql.MySQLError as e:
+        return _err(_friendly(e))
+
+
+@bp.route("/api/pharmacy/drugs/<int:drug_id>", methods=["POST"])
+def api_drug_update(drug_id):
+    body = request.get_json(silent=True) or {}
+    data, err = _drug_payload(body)
+    if err:
+        return _err(err)
+    if "status" in body:
+        data["status"] = 1 if body.get("status") else 0
+    try:
+        with get_cursor(commit=True) as cur:
+            cur.execute("SELECT drug_id FROM drug WHERE drug_id = %s", (drug_id,))
+            if not cur.fetchone():
+                return _err("该药品已不存在，请刷新后重试")
+            cols = list(data.keys())
+            sql = ("UPDATE drug SET %s WHERE drug_id = %%s"
+                   % ", ".join("%s = %%s" % c for c in cols))
+            cur.execute(sql, [data[c] for c in cols] + [drug_id])
+        return _ok({"message": "已保存：%s" % data["drug_name"], "sql": sql})
+    except pymysql.MySQLError as e:
+        return _err(_friendly(e))
+
+
+@bp.route("/api/pharmacy/drugs/<int:drug_id>/remove", methods=["POST"])
+def api_drug_delete(drug_id):
+    try:
+        with get_cursor(commit=True) as cur:
+            cur.execute("SELECT drug_name FROM drug WHERE drug_id = %s", (drug_id,))
+            row = cur.fetchone()
+            if not row:
+                return _err("该药品已不存在，请刷新后重试")
+            cur.execute("SELECT COUNT(*) AS c FROM prescription_item WHERE drug_id = %s",
+                        (drug_id,))
+            used = cur.fetchone()["c"]
+            if used:
+                return _err("「%s」已产生 %d 条处方记录，不能删除。"
+                            "如不再使用，请在编辑中把状态改为停用。" % (row["drug_name"], used))
+            cur.execute("DELETE FROM drug WHERE drug_id = %s", (drug_id,))
+        return _ok({"message": "已从药品目录删除：%s" % row["drug_name"],
+                    "sql": "DELETE FROM drug WHERE drug_id = %s"})
+    except pymysql.MySQLError as e:
+        return _err(_friendly(e))
+
+
+# ---------------------------------------------------------------------
+# 业务档案：新建档案（CREATE TABLE）/ 录入记录（INSERT）/ 删除档案（DROP TABLE）
+# ---------------------------------------------------------------------
+def _archive_meta(cur, table):
+    """读取档案的业务定义：档案名与字段名都来自数据表的注释。"""
+    _check_ident(table)
+    if not table.startswith(_ARCHIVE_PREFIX):
+        raise BizError("该档案不存在")
+    cur.execute(
+        "SELECT table_comment FROM information_schema.tables "
+        "WHERE table_schema = DATABASE() AND table_name = %s", (table,))
+    head = cur.fetchone()
+    if not head:
+        raise BizError("该档案不存在")
+    cur.execute(
+        "SELECT column_name, column_type, column_comment, is_nullable "
+        "FROM information_schema.columns "
+        "WHERE table_schema = DATABASE() AND table_name = %s "
+        "ORDER BY ordinal_position", (table,))
+    fields = []
+    for r in cur.fetchall():
+        name = r.get("COLUMN_NAME") or r.get("column_name")
+        if name in ("id", "created_at"):
+            continue
+        fields.append({
+            "key": name,
+            "label": (r.get("COLUMN_COMMENT") or r.get("column_comment")) or name,
+            "type": (r.get("COLUMN_TYPE") or r.get("column_type") or "").upper(),
+            "required": (r.get("IS_NULLABLE") or r.get("is_nullable")) == "NO",
+        })
+    return {"table": table, "name": head.get("TABLE_COMMENT") or head.get("table_comment"),
+            "fields": fields}
+
+
+@bp.route("/api/archives")
+def api_archives():
+    try:
+        with get_cursor() as cur:
+            cur.execute(
+                "SELECT table_name, table_comment FROM information_schema.tables "
+                "WHERE table_schema = DATABASE() AND table_name LIKE 'archive\\_%' "
+                "ORDER BY create_time DESC")
+            items = []
+            for r in cur.fetchall():
+                t = r.get("TABLE_NAME") or r.get("table_name")
+                meta = _archive_meta(cur, t)
+                cur.execute("SELECT COUNT(*) AS c FROM `%s`" % t)
+                meta["count"] = cur.fetchone()["c"]
+                items.append(meta)
+        return _ok({"items": items, "types": [
+            {"key": k, "label": v[0]} for k, v in ARCHIVE_TYPES.items()]})
+    except BizError as e:
+        return _err(str(e))
+    except pymysql.MySQLError as e:
+        return _err(_friendly(e))
+
+
+@bp.route("/api/archives", methods=["POST"])
+def api_archive_create():
+    body = request.get_json(silent=True) or {}
+    name = (body.get("name") or "").strip()
+    if not name:
+        return _err("请填写档案名称")
+    if len(name) > 30:
+        return _err("档案名称不能超过 30 字")
+    raw_fields = body.get("fields") or []
+    if not 1 <= len(raw_fields) <= 8:
+        return _err("请设置 1~8 个字段")
+
+    cols, labels, seen = [], [], set()
+    for i, f in enumerate(raw_fields, start=1):
+        label = (f.get("label") or "").strip()
+        if not label:
+            return _err("第 %d 个字段还没有填写名称" % i)
+        if len(label) > 20:
+            return _err("字段名称不能超过 20 字：%s" % label)
+        if label in seen:
+            return _err("字段名称重复：%s" % label)
+        seen.add(label)
+        t = ARCHIVE_TYPES.get((f.get("type") or "").strip())
+        if not t:
+            return _err("字段「%s」的类型不支持" % label)
+        cols.append("f%d %s%s COMMENT '%s'" % (
+            i, t[1], " NOT NULL" if f.get("required") else "", label))
+        labels.append(label)
+
+    table = _ARCHIVE_PREFIX + uuid.uuid4().hex[:10]
+    sql = ("CREATE TABLE `%s` (id INT AUTO_INCREMENT PRIMARY KEY, %s, "
+           "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP) "
+           "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='%s'"
+           % (table, ", ".join(cols), name))
+    try:
+        with get_cursor(commit=True) as cur:
+            cur.execute(
+                "SELECT 1 FROM information_schema.tables "
+                "WHERE table_schema = DATABASE() AND table_comment = %s LIMIT 1", (name,))
+            if cur.fetchone():
+                return _err("已存在同名业务档案：%s" % name)
+            cur.execute(sql)
+        return _ok({"table": table, "name": name, "message": "业务档案「%s」已启用" % name,
+                    "sql": sql})
+    except pymysql.MySQLError as e:
+        return _err(_friendly(e))
+
+
+@bp.route("/api/archives/<table>/records")
+def api_archive_records(table):
+    try:
+        with get_cursor() as cur:
+            meta = _archive_meta(cur, table)
+            cur.execute("SELECT * FROM `%s` ORDER BY id DESC LIMIT 50" % table)
+            rows = [_fmt_row(r) for r in cur.fetchall()]
+        return _ok({"meta": meta, "rows": rows})
+    except BizError as e:
+        return _err(str(e))
+    except pymysql.MySQLError as e:
+        return _err(_friendly(e))
+
+
+@bp.route("/api/archives/<table>/records", methods=["POST"])
+def api_archive_insert(table):
+    body = request.get_json(silent=True) or {}
+    values = body.get("values") or {}
+    try:
+        with get_cursor(commit=True) as cur:
+            meta = _archive_meta(cur, table)
+            keys, args = [], []
+            for f in meta["fields"]:
+                v = values.get(f["key"])
+                if isinstance(v, str):
+                    v = v.strip()
+                if not v:
+                    if f["required"]:
+                        return _err("请填写「%s」" % f["label"])
+                    v = None
+                keys.append(f["key"])
+                args.append(v)
+            sql = ("INSERT INTO `%s` (%s) VALUES (%s)"
+                   % (table, ", ".join("`%s`" % k for k in keys),
+                      ", ".join(["%s"] * len(keys))))
+            cur.execute(sql, args)
+        return _ok({"message": "已录入 1 条记录", "sql": sql})
+    except BizError as e:
+        return _err(str(e))
+    except pymysql.MySQLError as e:
+        return _err(_friendly(e))
+
+
+@bp.route("/api/archives/<table>/remove", methods=["POST"])
+def api_archive_drop(table):
+    try:
+        with get_cursor(commit=True) as cur:
+            meta = _archive_meta(cur, table)
+            cur.execute("SELECT COUNT(*) AS c FROM `%s`" % table)
+            n = cur.fetchone()["c"]
+            if n and not (request.get_json(silent=True) or {}).get("force"):
+                return _err("该档案下还有 %d 条记录，确认要连同记录一起删除吗？" % n,
+                            need_confirm=True, count=n)
+            cur.execute("DROP TABLE `%s`" % table)
+        return _ok({"message": "业务档案「%s」已删除" % meta["name"],
+                    "sql": "DROP TABLE `%s`" % table})
+    except BizError as e:
+        return _err(str(e))
+    except pymysql.MySQLError as e:
+        return _err(_friendly(e))
+
+
+@bp.route("/ops")
+def ops_page():
+    return render_template("ops.html")
 
 
 # =====================================================================
@@ -441,7 +585,7 @@ def api_report():
         else:
             pid = int(body.get("patient_id") or 1)
             rows = dao.report_patient_flow(pid, 20)
-        return _ok({"rows": rows,
+        return _ok({"rows": [_fmt_row(r) for r in rows],
                     "columns": list(rows[0].keys()) if rows else [],
                     "count": len(rows)})
     except pymysql.MySQLError as e:
