@@ -2,9 +2,10 @@
 {% block title %}药房业务 · {{ APP_TITLE }}{% endblock %}
 
 {% block content %}
-<div class="page-head">
+<div class="page-head c-violet">
+  <div class="kicker">PHARMACY</div>
   <h1>药房业务</h1>
-  <p>药品目录维护、业务档案管理、运营报表</p>
+  <p>药品目录、业务档案、运营报表　—　课程要求的六项基本操作都在这里完成，每次操作都会显示实际执行的 SQL。</p>
 </div>
 
 <div class="tabs">
@@ -15,47 +16,68 @@
 
 <!-- ==================== 药品目录 ==================== -->
 <section id="tab-drug">
-  <div class="toolbar">
-    <input type="text" id="q" placeholder="搜索药品名称或生产厂家" oninput="onSearch()">
-    <button class="ghost" onclick="loadDrugs()">刷新</button>
-    <button onclick="openDrugForm()">新药入库</button>
+  <div class="block c-blue">
+    <div class="block-head">
+      <span class="no">01</span>
+      <h2>药品目录</h2>
+      <span class="note">插入 · 修改 · 删除</span>
+    </div>
+    <div class="toolbar">
+      <input type="text" id="q" placeholder="搜索药品名称或生产厂家" oninput="onSearch()">
+      <button class="ghost" onclick="loadDrugs()">刷新</button>
+      <button onclick="openDrugForm()">新药入库</button>
+    </div>
+    <div class="msg" id="drugMsg"></div>
+    <div id="drugTable"><div class="center-empty">加载中…</div></div>
   </div>
-  <div class="msg" id="drugMsg"></div>
-  <div id="drugTable"><div class="center-empty">加载中…</div></div>
 </section>
 
 <!-- ==================== 业务档案 ==================== -->
 <section id="tab-archive" style="display:none">
   <div class="grid grid-sidebar">
-    <div>
-      <div class="sec-head">
-        <h2>档案类型</h2>
-        <span class="aside">每类档案就是一张表</span>
+    <div class="block c-violet">
+      <div class="block-head">
+        <span class="no">02</span>
+        <h2>业务档案</h2>
+        <span class="note">建表 · 删表</span>
       </div>
       <button class="ghost" style="width:100%" onclick="openArchiveForm()">＋ 新建业务档案</button>
       <div id="archiveList" style="margin-top:10px"><div class="center-empty">加载中…</div></div>
     </div>
-    <div id="archiveDetail"><div class="center-empty mid">新建档案后，在这里录入和查看记录</div></div>
+    <div class="block c-teal">
+      <div class="block-head">
+        <span class="no">03</span>
+        <h2>档案记录</h2>
+        <span class="note">表内数据的录入与查看</span>
+      </div>
+      <div id="archiveDetail"><div class="center-empty mid">新建档案后，在这里录入和查看记录</div></div>
+    </div>
   </div>
 </section>
 
 <!-- ==================== 运营报表 ==================== -->
 <section id="tab-report" style="display:none">
-  <div class="sec-head">
-    <h2>医生开药金额排行</h2>
-    <span class="aside">5 表 JOIN · 处方明细 → 处方 → 就诊 → 医生 → 科室</span>
-  </div>
-  <div id="reportA"><div class="center-empty">加载中…</div></div>
-
-  <div class="sec-head" style="margin-top:30px">
-    <h2>患者就诊流水</h2>
-    <div class="btn-row">
-      <span class="aside" style="margin-right:2px">7 表 JOIN · 患者编号</span>
-      <input type="number" id="pid" value="1" style="width:84px">
-      <button class="ghost small" onclick="loadReport('patient_flow')">查询</button>
+  <div class="block c-teal">
+    <div class="block-head">
+      <span class="no">04</span>
+      <h2>医生开药金额排行</h2>
+      <span class="note">5 表 JOIN · 处方明细 → 处方 → 就诊 → 医生 → 科室</span>
     </div>
+    <div id="reportA"><div class="center-empty">加载中…</div></div>
   </div>
-  <div id="reportB"></div>
+
+  <div class="block c-amber">
+    <div class="block-head">
+      <span class="no">05</span>
+      <h2>患者就诊流水</h2>
+      <div class="btn-row" style="margin-left:auto">
+        <span class="hint">7 表 JOIN · 患者编号</span>
+        <input type="number" id="pid" value="1" style="width:84px">
+        <button class="ghost small" onclick="loadReport('patient_flow')">查询</button>
+      </div>
+    </div>
+    <div id="reportB"></div>
+  </div>
 </section>
 
 <!-- ==================== 执行记录（默认收起） ==================== -->
@@ -243,8 +265,7 @@ async function selectArchive(i) {
   const rows = r.data.rows || [];
   window._records = rows;
   const fields = CUR_ARCHIVE.fields;
-  let html = '<div class="toolbar" style="margin-bottom:14px">'
-    + '<h2 style="margin:0;flex:1">' + esc(CUR_ARCHIVE.name) + '</h2>'
+  let html = '<div class="toolbar" style="margin-bottom:14px;justify-content:flex-end">'
     + '<button class="ghost small" onclick="openRecordForm()">＋ 录入记录</button></div>';
   if (!rows.length) {
     html += '<div class="center-empty">这个档案还没有记录，点「录入记录」添加第一条</div>';

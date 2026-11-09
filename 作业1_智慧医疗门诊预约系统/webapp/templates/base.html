@@ -54,8 +54,13 @@ function esc(s) {
 function renderTable(columns, rows, maxRows) {
   if (!rows || !rows.length) return '<div class="center-empty">没有查询到数据</div>';
   const cols = columns && columns.length ? columns : Object.keys(rows[0]);
-  let html = '<div class="table-wrap"><table><thead><tr>';
-  cols.forEach(c => { html += '<th>' + esc(c) + '</th>'; });
+  // 列数少时用固定布局，列宽均分，避免出现大段空白
+  const tcls = 'data-table' + (cols.length <= 6 ? ' fixed' : '');
+  let html = '<div class="table-wrap"><table class="' + tcls + '"><thead><tr>';
+  cols.forEach(c => {
+    const isNum = rows.length && typeof rows[0][c] === 'number';
+    html += '<th class="' + (isNum ? 'num' : '') + '">' + esc(c) + '</th>';
+  });
   html += '</tr></thead><tbody>';
   const limit = Math.min(rows.length, maxRows || 200);
   for (let i = 0; i < limit; i++) {

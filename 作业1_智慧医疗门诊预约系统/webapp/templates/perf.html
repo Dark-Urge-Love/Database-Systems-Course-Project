@@ -2,14 +2,19 @@
 {% block title %}索引性能对比 · {{ APP_TITLE }}{% endblock %}
 
 {% block content %}
-<div class="page-head">
+<div class="page-head c-amber">
+  <div class="kicker">INDEX</div>
   <h1>索引性能对比</h1>
   <p>同一条查询，一次走索引、一次用 IGNORE INDEX 绕过索引，对比执行计划与实测耗时。</p>
 </div>
 
 <div class="grid grid-sidebar">
-  <div class="card">
-    <h2>对比用例</h2>
+  <div class="block c-amber">
+    <div class="block-head">
+      <span class="no">01</span>
+      <h2>对比用例</h2>
+      <span class="note">选择查询条件</span>
+    </div>
     <label class="field"><span>查询</span>
       <select id="case">
         {% for key, c in cases.items() %}
@@ -30,9 +35,13 @@
     <div class="msg" id="perfMsg"></div>
   </div>
 
-  <div>
-    <div class="sec-head"><h2>对比结果</h2><span class="aside">耗时越小越好</span></div>
-    <div id="result"><div class="center-empty">点击「开始对比」后显示结果</div></div>
+  <div class="block c-blue">
+    <div class="block-head">
+      <span class="no">02</span>
+      <h2>对比结果</h2>
+      <span class="note">耗时越小越好</span>
+    </div>
+    <div id="result"><div class="center-empty">点击左侧「开始对比」后显示结果</div></div>
   </div>
 </div>
 {% endblock %}

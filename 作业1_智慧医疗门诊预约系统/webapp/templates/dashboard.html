@@ -2,58 +2,66 @@
 {% block title %}数据概览 · {{ APP_TITLE }}{% endblock %}
 
 {% block content %}
-<div class="page-head">
+<div class="page-head c-blue">
+  <div class="kicker">OVERVIEW</div>
   <h1>数据概览</h1>
-  <p>智慧医疗 · 社区门诊预约与处方管理系统　|　课程要求 6 项基本操作 + 3 项额外功能</p>
+  <p>智慧医疗 · 社区门诊预约与处方管理系统　—　课程要求的 6 项基本操作与 3 项额外功能，都可以在下面四个页面里真实操作。</p>
 </div>
 
 {% if not db_ok %}
 <div class="msg bad show">数据库未连接：{{ db_err }}　请确认 Ubuntu 中 MySQL 已启动。</div>
 {% endif %}
 
+<!-- ============ 关键指标 ============ -->
 <div class="metrics">
-  <div class="metric">
+  <div class="metric c-blue">
     <div class="label">数据总量</div>
     <div class="value">{{ '{:,}'.format(total) }}</div>
     <div class="sub">要求 ≥ 100,000 条</div>
   </div>
-  <div class="metric">
+  <div class="metric c-teal">
     <div class="label">数据表</div>
     <div class="value">{{ rows|length }}</div>
     <div class="sub">要求 ≥ 5 张</div>
   </div>
-  <div class="metric">
+  <div class="metric c-violet">
     <div class="label">实体</div>
     <div class="value">10</div>
     <div class="sub">要求 5 ~ 10 个</div>
   </div>
-  <div class="metric">
+  <div class="metric c-amber">
     <div class="label">实体联系</div>
-    <div class="value" style="font-size:17px;letter-spacing:0">1-1 · 1-N · N-M</div>
+    <div class="value text">1-1 · 1-N · N-M</div>
     <div class="sub">三类齐全</div>
   </div>
 </div>
 
-<div class="sec">
-  <div class="sec-head">
+<!-- ============ 01 课程要求入口 ============ -->
+<section class="block c-violet">
+  <div class="block-head">
+    <span class="no">01</span>
     <h2>课程要求 → 操作入口</h2>
-    <span class="aside">每一项都在页面上真实执行 SQL，不是演示数据</span>
+    <span class="note">每一项都在页面上真实执行 SQL</span>
   </div>
+
   <div class="req-list">
     <div class="req-row">
-      <span class="k">基本 1–6</span>
+      <span class="chip c-blue">基本 1–6</span>
       <span class="v">创建表 · 插入 · 修改 · 删除 · 删除表 · 跨表查询<em>六项操作对应药房的日常业务</em></span>
-      <a class="go" href="/ops">药房业务 →</a>
+      <span class="go"><a class="btn-go c-violet" href="/ops">进入药房业务 →</a></span>
     </div>
     <div class="req-row">
-      <span class="k">额外 1–2</span>
+      <span class="chip c-amber">额外 1–2</span>
       <span class="v">事务支持 · 索引支持<em>挂号扣号用 FOR UPDATE；索引用 IGNORE INDEX 做对照</em></span>
-      <span class="go"><a href="/register">挂号</a> · <a href="/perf">索引</a></span>
+      <span class="go">
+        <a class="btn-go ghost c-green" href="/register">挂号事务</a>
+        <a class="btn-go ghost c-amber" href="/perf">索引对比</a>
+      </span>
     </div>
     <div class="req-row">
-      <span class="k">额外 3</span>
+      <span class="chip c-green">额外 3</span>
       <span class="v">多用户并发访问 + 性能记录<em>10 线程同时抢一个号源，统计成功数与耗时</em></span>
-      <a class="go" href="/register">去演示 →</a>
+      <span class="go"><a class="btn-go ghost c-green" href="/register">去演示 →</a></span>
     </div>
   </div>
 
@@ -62,7 +70,7 @@
     <div class="inner table-wrap" style="max-height:none">
       <table class="compact">
         <thead>
-          <tr><th style="width:64px">编号</th><th style="width:140px">要求</th><th style="width:220px">在系统中对应</th><th>说明</th></tr>
+          <tr><th style="width:70px">编号</th><th style="width:140px">要求</th><th style="width:210px">在系统中对应</th><th>说明</th></tr>
         </thead>
         <tbody>
           <tr><td>基本 1</td><td>创建数据表</td><td>业务档案 → 新建档案</td><td>填写档案名称与字段，系统生成数据表</td></tr>
@@ -74,18 +82,20 @@
           <tr><td>额外 1</td><td>事务支持</td><td>患者挂号</td><td>SELECT…FOR UPDATE + INSERT + UPDATE 同事务</td></tr>
           <tr><td>额外 2</td><td>索引支持</td><td>索引对比</td><td>走索引与全表扫描的 EXPLAIN 计划、耗时对比</td></tr>
           <tr><td>额外 3</td><td>多用户并发</td><td>挂号页 → 并发抢号</td><td>10 线程同抢一个号源，验证不超卖并记录耗时</td></tr>
-          <tr><td>数据</td><td>≥5 表 / ≥10 万条</td><td>本页</td><td>10 表 22 万条，见下表</td></tr>
+          <tr><td>数据</td><td>≥5 表 / ≥10 万条</td><td>本页</td><td>10 表 22 万条，见下方各表数据量</td></tr>
           <tr><td>关系</td><td>1-1 / 1-N / N-M</td><td>设计文档</td><td>预约↔就诊、科室→医生→排班→预约、处方↔药品</td></tr>
         </tbody>
       </table>
     </div>
   </details>
-</div>
+</section>
 
-<div class="sec">
-  <div class="sec-head">
+<!-- ============ 02 各表数据量 ============ -->
+<section class="block c-teal">
+  <div class="block-head">
+    <span class="no">02</span>
     <h2>各表数据量</h2>
-    <span class="aside">实时 COUNT(*)</span>
+    <span class="note">实时 COUNT(*)</span>
   </div>
   <div class="table-list">
     {% for r in rows %}
@@ -95,12 +105,14 @@
     </div>
     {% endfor %}
   </div>
-</div>
+</section>
 
-<div class="sec">
-  <div class="sec-head">
+<!-- ============ 03 数据库连接 ============ -->
+<section class="block c-slate">
+  <div class="block-head">
+    <span class="no">03</span>
     <h2>数据库连接</h2>
-    <span class="aside">客户端 Flask（本机）→ MySQL（Linux 服务器）</span>
+    <span class="note">客户端 Flask（本机）→ MySQL（Linux 服务器）</span>
   </div>
   <div class="meta-line">
     <span>地址 <b>{{ conn.host }}:{{ conn.port }}</b></span>
@@ -110,5 +122,5 @@
     <span>主机 <b>{{ conn.hostname or '—' }}</b></span>
     <span>数据目录 <b class="mono">{{ conn.datadir or '—' }}</b></span>
   </div>
-</div>
+</section>
 {% endblock %}

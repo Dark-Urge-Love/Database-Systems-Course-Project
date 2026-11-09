@@ -2,15 +2,20 @@
 {% block title %}患者挂号 · {{ APP_TITLE }}{% endblock %}
 
 {% block content %}
-<div class="page-head">
+<div class="page-head c-green">
+  <div class="kicker">TRANSACTION</div>
   <h1>患者挂号</h1>
-  <p>一次挂号 = 扣减号源 + 生成预约，两条语句在同一个事务里完成。</p>
+  <p>一次挂号 = 扣减号源 + 生成预约，两条语句在同一个事务里完成；右下角可多线程并发抢同一个号源。</p>
 </div>
 
 <div class="grid grid-sidebar">
   <!-- ================= 左侧：挂号表单 ================= -->
-  <div class="card">
-    <h2>选择科室、医生、排班</h2>
+  <div class="block c-blue">
+    <div class="block-head">
+      <span class="no">01</span>
+      <h2>选择号源与患者</h2>
+      <span class="note">提交后执行事务</span>
+    </div>
     <label class="field"><span>科室</span>
       <select id="dept">
         <option value="">请选择科室</option>
@@ -32,9 +37,8 @@
 
     <div class="divider"></div>
 
-    <h2>选择患者</h2>
     <div class="inline-search">
-      <input type="text" id="pq" placeholder="按姓名或手机号搜索">
+      <input type="text" id="pq" placeholder="按姓名或手机号搜索患者">
       <button class="ghost" onclick="loadPatients()">搜索</button>
     </div>
     <label class="field"><span>患者</span>
@@ -46,14 +50,22 @@
 
   <!-- ================= 右侧：结果与并发演示 ================= -->
   <div>
-    <div class="card">
-      <h2>挂号结果</h2>
-      <div id="regResult"><div class="center-empty">提交后显示事务执行结果与 SQL</div></div>
+    <div class="block c-green">
+      <div class="block-head">
+        <span class="no">02</span>
+        <h2>挂号结果</h2>
+        <span class="note">事务执行过程与实际 SQL</span>
+      </div>
+      <div id="regResult"><div class="center-empty mid">提交后显示事务执行结果与 SQL</div></div>
     </div>
 
-    <div class="card">
-      <h2>并发抢号</h2>
-      <p class="hint" style="margin-top:-6px">N 个线程同时抢同一个号源，看成功数与号源减少数是否一致。</p>
+    <div class="block c-amber">
+      <div class="block-head">
+        <span class="no">03</span>
+        <h2>并发抢号</h2>
+        <span class="note">验证不超卖并记录耗时</span>
+      </div>
+      <p class="hint" style="margin:-4px 0 12px">N 个线程同时抢同一个号源，看成功数与号源减少数是否一致。</p>
       <div class="btn-row">
         <label class="field" style="margin:0;width:110px"><span>线程数</span>
           <input type="number" id="threads" value="10" min="2" max="30">
