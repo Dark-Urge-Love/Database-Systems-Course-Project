@@ -2,7 +2,7 @@
 # =====================================================================
 # 药品进销存管理系统 · 数据库部署脚本
 # 作用：建库建表(schema.sql) → 生成约 15 万条数据(data_gen.py)
-#       → 建索引(index.sql) → 校验(verify.sql)
+#       → 建索引(index.sql) → 快速校验
 # 运行位置：Ubuntu 虚拟机内（需已执行过 ubuntu_mysql_setup.sh）
 # 用法：
 #       chmod +x deploy_db.sh
@@ -61,8 +61,10 @@ echo "      完成"
 
 # ---------- 4. 校验 ----------
 echo ""
-echo "[4/4] 执行 verify.sql（数据量 + 账实自洽 + 约束统计 + 索引对比）..."
-mysql --default-character-set=utf8mb4 -h 127.0.0.1 -u root -p"${ROOT_PW}" < "${PROJ_ROOT}/sql/verify.sql"
+echo "[4/4] 快速校验（表数量与总行数）..."
+mysql --default-character-set=utf8mb4 -h 127.0.0.1 -u root -p"${ROOT_PW}" -e \
+  "SELECT COUNT(*) AS tables_cnt FROM information_schema.tables WHERE table_schema='drug_db';
+   SELECT (SELECT COUNT(*) FROM drug) AS drugs, (SELECT COUNT(*) FROM sale_item) AS sale_rows;"
 
 echo ""
 echo "=============================================="

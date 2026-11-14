@@ -267,13 +267,11 @@ def percentile(values, p):
 def run(args):
     # ---------- 找服务器 ----------
     if not args.host:
-        from webapp import config, netprobe
+        # 没用 --host 指定时，直接用 config 里确定的地址
+        #（config 的取值顺序：环境变量 DB_HOST → wsl_ip.txt → 默认 IP）
+        from webapp import config
         config.DB_USER, config.DB_PASSWORD, config.DB_NAME = args.user, args.password, args.db
-        args.host = netprobe.ensure_server(config, force=True, verbose=True)
-        if not args.host:
-            print("[错误] 没找到可用的数据库服务器。请确认 Ubuntu 正在运行且 MySQL 已启动，")
-            print("       或用 --host 显式指定地址。")
-            return 2
+        args.host = config.DB_HOST
 
     print("=" * 66)
     print(" 多客户端并发性能测试")

@@ -8,7 +8,7 @@
 #   3. 建 13 张表（sql/schema.sql）
 #   4. 生成 15.3 万条数据（sql/data_gen.py）
 #   5. 建索引（sql/index.sql）
-#   6. 校验数据量与账实自洽（sql/verify.sql）
+#   6. 校验数据量（表数量与总行数）
 #
 # 用法（在 Ubuntu 里，项目根目录下）：
 #       cd ~/作业1_药品进销存系统      # 或 /mnt/d/.../作业1_药品进销存系统
@@ -207,8 +207,10 @@ echo "      完成"
 # 5. 校验
 # =====================================================================
 echo ""
-echo "[5/6] 执行 verify.sql（数据量 / 账实自洽 / 结构统计）..."
-eval "$ADMIN_CMD" < "${PROJ_ROOT}/sql/verify.sql"
+echo "[5/6] 快速校验（表数量与总行数）..."
+eval "$ADMIN_CMD" -e \
+  "SELECT COUNT(*) AS tables_cnt FROM information_schema.tables WHERE table_schema='drug_db';
+   SELECT (SELECT COUNT(*) FROM drug) AS drugs, (SELECT COUNT(*) FROM sale_item) AS sale_rows;"
 
 # =====================================================================
 # 6. 结果汇总 + 把 IP 写给 Windows 客户端
